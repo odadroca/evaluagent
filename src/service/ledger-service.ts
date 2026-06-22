@@ -3,6 +3,7 @@ import type { LedgerRepository } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
 import { isEntryKind, validatePayload } from "../domain/entry-kinds.js";
+import { clampLimit, RECALL_MAX_LIMIT } from "../domain/limits.js";
 import { SimpleRanker } from "./simple-ranker.js";
 
 export class LedgerValidationError extends Error {
@@ -102,7 +103,8 @@ export class LedgerService {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
     const source: EntrySource = input.source ?? "self_report";
-    const query: LedgerQuery = { ...input, project, source };
+    const limit = clampLimit(input.limit, RECALL_MAX_LIMIT);
+    const query: LedgerQuery = { ...input, project, source, limit };
     const candidates = await this.repo.query(query);
     return this.ranker.rank(query, candidates);
   }

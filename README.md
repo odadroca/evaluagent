@@ -70,17 +70,18 @@ Print a ready-to-merge hooks snippet and add it to `.claude/settings.json`:
 node dist/bin/ledger.js hooks-install
 ```
 
-It wires `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, and `SessionEnd` to
-`evaluagent-hook`, which writes spine entries (source `hook_spine`) into the same ledger. The
-hook **always exits 0** so it can never break the agent, and tool inputs are stored only as a
-hashed digest. Outside Claude Code the bridge is simply absent and the ledger holds self-report
-entries only.
+It wires `SessionStart`, `PreToolUse`, `PostToolUse`, **`PostToolUseFailure`** (so failed tool
+calls are captured, not just successes), `Stop`, and `SessionEnd` to `evaluagent-hook`, which
+writes spine entries (source `hook_spine`) into the same ledger. The snippet uses **exec-form
+`args`** so a binary path containing spaces is passed unsplit. The hook **always exits 0** so it
+can never break the agent, and tool inputs are stored only as a hashed digest. Outside Claude
+Code the bridge is simply absent and the ledger holds self-report entries only.
 
 ## Tools
 
 - **`record_reasoning`** `{ kind, title, body, payload, project?, confidence?, salience?, tags?, session_id?, occurred_at? }`
   — store one introspective entry. `kind` ∈ `surprise | dead_end | confidence | abandoned_branch | reconstruction | friction`; `payload` is validated per kind.
-- **`recall_reasoning`** `{ project?, kinds?, text?, limit? }` — recency-ranked relevant entries (the next-instance loop).
+- **`recall_reasoning`** `{ project?, kinds?, text?, source?, limit? }` — recency-ranked relevant entries (the next-instance loop). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `limit` is clamped to 1..100.
 
 ## Layout
 

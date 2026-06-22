@@ -42,6 +42,12 @@ export const TOOLS: Tool[] = [
         project: { type: "string" },
         kinds: { type: "array", items: { type: "string", enum: [...ENTRY_KINDS] } },
         text: { type: "string", description: "Free-text match against title/body." },
+        source: {
+          type: "string",
+          enum: ["self_report", "hook_spine"],
+          description:
+            "Defaults to self_report (the lessons). Pass hook_spine to read the automatic tool/lifecycle spine.",
+        },
         limit: { type: "integer", minimum: 1, maximum: 100 },
       },
       additionalProperties: false,

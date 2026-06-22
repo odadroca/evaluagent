@@ -103,6 +103,14 @@ describe("LedgerService.recall", () => {
     expect(out.map((e) => e.title)).toEqual(["second", "first"]);
   });
 
+  it("clamps the limit (a negative limit never returns the whole ledger)", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    for (let i = 0; i < 3; i++) await s.record({ ...surprise, title: `e${i}` });
+    expect(await s.recall({ limit: 1 })).toHaveLength(1);
+    // -1 must not become an unbounded SQLite LIMIT; it falls back to the default.
+    expect(await s.recall({ limit: -1 })).toHaveLength(3);
+  });
+
   it("passes kind filters through to the query", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await s.record({ ...surprise, title: "s" });
