@@ -62,6 +62,20 @@ Register it with any MCP client (e.g. Claude Desktop / Claude Code):
 | `EVALUAGENT_DB_PATH` (or `RLX_DB_PATH`) | `~/.evaluagent/ledger.db` | SQLite file (`:memory:` for ephemeral) |
 | `EVALUAGENT_PROJECT` (or `RLX_PROJECT`) | current dir name | default project scope for entries |
 
+### Registering in Claude Code
+
+```bash
+npm run build   # the config points at dist/
+claude mcp add evaluagent --scope local -e EVALUAGENT_PROJECT=evaluagent -- \
+  node /abs/path/to/evaluagent/dist/bin/ledger.js serve
+```
+
+> **Restart required.** Claude Code binds MCP servers at process **startup**. A server added
+> with `claude mcp add` mid-session is **not** hot-loaded and will **not** appear in the
+> in-session `/mcp` dialog — even after reconnecting there. Fully **restart Claude Code** to
+> load it. Verify independently with `claude mcp get evaluagent` (should say `✔ Connected`).
+> After changing server code, re-run `npm run build` before restarting.
+
 ## Capture the behavioral spine automatically (Claude Code)
 
 Print a ready-to-merge hooks snippet and add it to `.claude/settings.json`:
@@ -70,17 +84,18 @@ Print a ready-to-merge hooks snippet and add it to `.claude/settings.json`:
 node dist/bin/ledger.js hooks-install
 ```
 
-It wires `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, and `SessionEnd` to
-`evaluagent-hook`, which writes spine entries (source `hook_spine`) into the same ledger. The
-hook **always exits 0** so it can never break the agent, and tool inputs are stored only as a
-hashed digest. Outside Claude Code the bridge is simply absent and the ledger holds self-report
-entries only.
+It wires `SessionStart`, `PreToolUse`, `PostToolUse`, **`PostToolUseFailure`** (so failed tool
+calls are captured, not just successes), `Stop`, and `SessionEnd` to `evaluagent-hook`, which
+writes spine entries (source `hook_spine`) into the same ledger. The snippet uses **exec-form
+`args`** so a binary path containing spaces is passed unsplit. The hook **always exits 0** so it
+can never break the agent, and tool inputs are stored only as a hashed digest. Outside Claude
+Code the bridge is simply absent and the ledger holds self-report entries only.
 
 ## Tools
 
 - **`record_reasoning`** `{ kind, title, body, payload, project?, confidence?, salience?, tags?, session_id?, occurred_at? }`
   — store one introspective entry. `kind` ∈ `surprise | dead_end | confidence | abandoned_branch | reconstruction | friction`; `payload` is validated per kind.
-- **`recall_reasoning`** `{ project?, kinds?, text?, limit? }` — recency-ranked relevant entries (the next-instance loop).
+- **`recall_reasoning`** `{ project?, kinds?, text?, source?, limit? }` — recency-ranked relevant entries (the next-instance loop). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `limit` is clamped to 1..100.
 
 ## Layout
 

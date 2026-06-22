@@ -42,6 +42,43 @@ function looksLikeError(response: unknown): boolean {
 }
 
 /**
+ * Extract a failure message. PostToolUseFailure carries it as a top-level
+ * `error` field; fall back to `tool_response.error` for other shapes.
+ */
+function extractErrorMessage(event: HookEvent): string | undefined {
+  if (typeof event.error === "string") return event.error;
+  const resp = event.tool_response;
+  if (resp && typeof resp === "object") {
+    const err = (resp as Record<string, unknown>).error;
+    if (typeof err === "string") return err;
+  }
+  return undefined;
+}
+
+/** Build the `post` spine entry shared by PostToolUse (success) and PostToolUseFailure. */
+function postSpine(event: HookEvent, sessionId: string | null, ok: boolean): SpineWrite {
+  const tool = event.tool_name ?? "unknown";
+  const payload: Record<string, unknown> = {
+    phase: "post",
+    tool,
+    args_digest: digestArgs(event.tool_input),
+    ok,
+  };
+  if (!ok) {
+    const err = extractErrorMessage(event);
+    if (err) payload.error = err;
+  }
+  return {
+    kind: "spine_tool",
+    title: `${event.hook_event_name}: ${tool}`,
+    body: ok ? `finished ${tool}` : `${tool} failed`,
+    toolName: tool,
+    sessionId,
+    payload,
+  };
+}
+
+/**
  * Map one Claude Code hook event to zero or more spine entries. Pure: correlation
  * (pre/post duration, retries) is a later, DB-aware refinement.
  */
@@ -93,24 +130,12 @@ export function mapHookEvent(event: HookEvent): SpineWrite[] {
         },
       ];
     }
-    case "PostToolUse": {
-      const tool = event.tool_name ?? "unknown";
-      return [
-        {
-          kind: "spine_tool",
-          title: `PostToolUse: ${tool}`,
-          body: `finished ${tool}`,
-          toolName: tool,
-          sessionId,
-          payload: {
-            phase: "post",
-            tool,
-            args_digest: digestArgs(event.tool_input),
-            ok: !looksLikeError(event.tool_response),
-          },
-        },
-      ];
-    }
+    case "PostToolUse":
+      // Claude Code fires PostToolUse only on success, but keep the response
+      // check as a defensive fallback.
+      return [postSpine(event, sessionId, !looksLikeError(event.tool_response))];
+    case "PostToolUseFailure":
+      return [postSpine(event, sessionId, false)];
     default:
       return [];
   }

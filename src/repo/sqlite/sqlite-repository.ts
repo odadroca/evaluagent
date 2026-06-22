@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
 import type { AnyKind, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
 import type { LedgerRepository, SpineMatch } from "../ledger-repository.js";
+import { clampLimit } from "../../domain/limits.js";
 
 // Monotonic so ids are strictly increasing even within the same millisecond —
 // ordering by id DESC then yields a deterministic most-recent-first sequence.
@@ -150,7 +151,7 @@ export class SqliteRepository implements LedgerRepository {
     }
 
     const sql = `SELECT * FROM entries WHERE ${clauses.join(" AND ")} ORDER BY id DESC LIMIT ?`;
-    params.push(q.limit ?? 20);
+    params.push(clampLimit(q.limit));
 
     const rows = this.db.prepare(sql).all(...params) as Row[];
     return rows.map(toEntry);

@@ -6,6 +6,7 @@ import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 import { LedgerService } from "../service/ledger-service.js";
 import { createLedgerServer } from "../mcp/server.js";
 import { resolveDbPath, resolveProject } from "../config.js";
+import { buildHooksSnippet } from "../hooks/install.js";
 
 async function serve(): Promise<void> {
   const dbPath = resolveDbPath();
@@ -23,22 +24,10 @@ async function serve(): Promise<void> {
 /** Print a .claude/settings.json hooks snippet wired to the built hook binary. */
 function hooksInstall(): void {
   const hookBin = path.join(path.dirname(fileURLToPath(import.meta.url)), "ledger-hook.js");
-  const command = `node ${hookBin}`;
-  const oneHook = [{ hooks: [{ type: "command", command }] }];
-  const withMatcher = [{ matcher: "*", hooks: [{ type: "command", command }] }];
-  const snippet = {
-    hooks: {
-      SessionStart: oneHook,
-      PreToolUse: withMatcher,
-      PostToolUse: withMatcher,
-      Stop: oneHook,
-      SessionEnd: oneHook,
-    },
-  };
   process.stdout.write(
     "# Merge this into .claude/settings.json to feed the behavioral spine into the ledger:\n",
   );
-  process.stdout.write(`${JSON.stringify(snippet, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(buildHooksSnippet(hookBin), null, 2)}\n`);
 }
 
 const cmd = process.argv[2] ?? "serve";

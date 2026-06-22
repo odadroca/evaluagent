@@ -6,10 +6,11 @@ import { LedgerService } from "../service/ledger-service.js";
 import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 
 let repo: SqliteRepository;
+let service: LedgerService;
 
 async function connectedClient() {
   repo = new SqliteRepository(":memory:");
-  const service = new LedgerService({ repo, defaultProject: "evaluagent" });
+  service = new LedgerService({ repo, defaultProject: "evaluagent" });
   const server = createLedgerServer(service);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test-client", version: "0.0.0" });
@@ -83,5 +84,32 @@ describe("MCP ledger server", () => {
     const client = await connectedClient();
     const res = await client.callTool({ name: "nope", arguments: {} });
     expect(res.isError).toBe(true);
+  });
+
+  it("recalls hook_spine entries when source is provided (default hides them)", async () => {
+    const client = await connectedClient();
+    await service.recordSpine({
+      kind: "spine_tool",
+      title: "PreToolUse: Edit",
+      body: "about to run Edit",
+      toolName: "Edit",
+      payload: { phase: "pre", tool: "Edit" },
+    });
+
+    const hidden = JSON.parse(
+      textOf(await client.callTool({ name: "recall_reasoning", arguments: {} })),
+    );
+    expect(hidden.entries).toHaveLength(0);
+
+    const shown = JSON.parse(
+      textOf(
+        await client.callTool({
+          name: "recall_reasoning",
+          arguments: { source: "hook_spine" },
+        }),
+      ),
+    );
+    expect(shown.entries).toHaveLength(1);
+    expect(shown.entries[0].kind).toBe("spine_tool");
   });
 });

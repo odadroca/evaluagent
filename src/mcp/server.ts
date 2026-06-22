@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { LedgerService, LedgerValidationError } from "../service/ledger-service.js";
 import type { EntryKind } from "../domain/entry-kinds.js";
+import type { EntrySource } from "../domain/entry.js";
 import { TOOLS } from "./tools.js";
 
 function ok(data: Record<string, unknown>): CallToolResult {
@@ -51,6 +52,7 @@ async function recallReasoning(
     project: args.project as string | undefined,
     kinds: args.kinds as EntryKind[] | undefined,
     text: args.text as string | undefined,
+    source: args.source as EntrySource | undefined,
     limit: args.limit as number | undefined,
   });
   return ok({
