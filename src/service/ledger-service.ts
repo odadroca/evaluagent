@@ -116,15 +116,36 @@ export class LedgerService {
     if (!proj) {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
+
+    const payload: Record<string, unknown> = { ...(write.payload ?? {}) };
+    let refEntryId: string | null = null;
+
+    const tool = write.toolName ?? null;
+    const argsDigest = typeof payload.args_digest === "string" ? payload.args_digest : null;
+    if (write.kind === "spine_tool" && tool && argsDigest) {
+      const match = { project: proj, sessionId: write.sessionId ?? null, tool, argsDigest };
+      if (payload.phase === "post") {
+        const pre = await this.repo.findOpenPre(match);
+        if (pre) {
+          refEntryId = pre.id;
+          payload.duration_ms = Math.max(0, Date.now() - Date.parse(pre.createdAt));
+        }
+      } else if (payload.phase === "pre") {
+        const priorPost = await this.repo.findLatestPost(match);
+        if (priorPost) payload.retry_of = priorPost.id;
+      }
+    }
+
     return this.repo.insertEntry({
       kind: write.kind,
       project: proj,
       title: write.title,
       body: write.body,
-      payload: write.payload,
+      payload,
       source: "hook_spine",
       toolName: write.toolName ?? null,
       sessionId: write.sessionId ?? null,
+      refEntryId,
     });
   }
 }
