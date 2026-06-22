@@ -62,6 +62,20 @@ Register it with any MCP client (e.g. Claude Desktop / Claude Code):
 | `EVALUAGENT_DB_PATH` (or `RLX_DB_PATH`) | `~/.evaluagent/ledger.db` | SQLite file (`:memory:` for ephemeral) |
 | `EVALUAGENT_PROJECT` (or `RLX_PROJECT`) | current dir name | default project scope for entries |
 
+### Registering in Claude Code
+
+```bash
+npm run build   # the config points at dist/
+claude mcp add evaluagent --scope local -e EVALUAGENT_PROJECT=evaluagent -- \
+  node /abs/path/to/evaluagent/dist/bin/ledger.js serve
+```
+
+> **Restart required.** Claude Code binds MCP servers at process **startup**. A server added
+> with `claude mcp add` mid-session is **not** hot-loaded and will **not** appear in the
+> in-session `/mcp` dialog — even after reconnecting there. Fully **restart Claude Code** to
+> load it. Verify independently with `claude mcp get evaluagent` (should say `✔ Connected`).
+> After changing server code, re-run `npm run build` before restarting.
+
 ## Capture the behavioral spine automatically (Claude Code)
 
 Print a ready-to-merge hooks snippet and add it to `.claude/settings.json`:
