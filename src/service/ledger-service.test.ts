@@ -116,3 +116,44 @@ describe("LedgerService.recall", () => {
     expect(out.map((e) => e.title)).toEqual(["d"]);
   });
 });
+
+describe("LedgerService spine + recall scoping", () => {
+  it("records a spine entry via recordSpine with source hook_spine", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    const e = await s.recordSpine({
+      kind: "spine_tool",
+      title: "PreToolUse: Edit",
+      body: "about to run Edit",
+      toolName: "Edit",
+      sessionId: "sess-1",
+      payload: { phase: "pre", tool: "Edit" },
+    });
+    expect(e.source).toBe("hook_spine");
+    expect(e.kind).toBe("spine_tool");
+  });
+
+  it("recall excludes spine entries by default", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.record({ ...surprise, title: "lesson" });
+    await s.recordSpine({
+      kind: "spine_tool",
+      title: "PreToolUse: Edit",
+      body: "x",
+      payload: { phase: "pre" },
+    });
+    const out = await s.recall({});
+    expect(out.map((e) => e.title)).toEqual(["lesson"]);
+  });
+
+  it("recall can include spine entries when source is overridden", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.recordSpine({
+      kind: "spine_tool",
+      title: "PreToolUse: Edit",
+      body: "x",
+      payload: { phase: "pre" },
+    });
+    const out = await s.recall({ source: "hook_spine" });
+    expect(out.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
+  });
+});

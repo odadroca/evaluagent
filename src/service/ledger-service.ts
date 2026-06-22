@@ -1,6 +1,7 @@
-import type { LedgerEntry, LedgerQuery } from "../domain/entry.js";
+import type { EntrySource, LedgerEntry, LedgerQuery } from "../domain/entry.js";
 import type { LedgerRepository } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
+import type { SpineWrite } from "../domain/spine.js";
 import { isEntryKind, validatePayload } from "../domain/entry-kinds.js";
 import { SimpleRanker } from "./simple-ranker.js";
 
@@ -27,7 +28,11 @@ export interface RecordInput {
   occurredAt?: string | null;
 }
 
-/** Input to `recall` — `project` may be omitted when a default is configured. */
+/**
+ * Input to `recall` — `project` may be omitted when a default is configured.
+ * `source` defaults to "self_report" so spine noise never drowns the lessons;
+ * pass an explicit source (e.g. "hook_spine") to widen.
+ */
 export type RecallInput = Omit<LedgerQuery, "project"> & { project?: string };
 
 export interface LedgerServiceOptions {
@@ -96,8 +101,30 @@ export class LedgerService {
     if (!project) {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
-    const query: LedgerQuery = { ...input, project };
+    const source: EntrySource = input.source ?? "self_report";
+    const query: LedgerQuery = { ...input, project, source };
     const candidates = await this.repo.query(query);
     return this.ranker.rank(query, candidates);
+  }
+
+  /**
+   * Persist a behavioral-spine entry from the hook bridge. Bypasses introspective
+   * payload validation (the mapper is trusted) and tags it source="hook_spine".
+   */
+  async recordSpine(write: SpineWrite, project?: string): Promise<LedgerEntry> {
+    const proj = project ?? this.defaultProject;
+    if (!proj) {
+      throw new LedgerValidationError("project is required (no defaultProject configured)");
+    }
+    return this.repo.insertEntry({
+      kind: write.kind,
+      project: proj,
+      title: write.title,
+      body: write.body,
+      payload: write.payload,
+      source: "hook_spine",
+      toolName: write.toolName ?? null,
+      sessionId: write.sessionId ?? null,
+    });
   }
 }

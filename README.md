@@ -7,17 +7,21 @@ analyze patterns over time **and a future agent instance can recall the relevant
 Design background lives in [`docs/REASONING-LEDGER-PLAN.md`](./docs/REASONING-LEDGER-PLAN.md)
 and [`docs/REASONING-LEDGER-ARCHITECTURE.md`](./docs/REASONING-LEDGER-ARCHITECTURE.md).
 
-## Status — Phase 1 (MVP)
+## Status — Phases 1 + 3
 
-A working thin slice, end-to-end:
+A working slice, end-to-end:
 
 - **Record / recall over MCP**, backed by **SQLite**, recency-ranked.
 - TypeBox + Ajv validation of the six introspective entry kinds.
+- **Claude Code hook bridge**: a `evaluagent-hook` binary turns hook events into an automatic
+  behavioral spine (tool calls + lifecycle), stored alongside self-report entries. Tool args
+  are **hashed, never stored raw**. `recall_reasoning` defaults to self-report so spine noise
+  never drowns the lessons.
 - Swappable storage (`LedgerRepository`) and ranking (`Ranker`) seams, so Postgres + pgvector /
   semantic ranking drop in later without touching the service or gateways.
 
-Not yet built (see the plan's phasing): tags + FTS + hybrid ranking, the Claude Code hook
-bridge, the REST / OpenAI-function surface, the optional OTel mirror, and the
+Not yet built (see the plan's phasing): tags + FTS + hybrid ranking, pre/post duration &
+retry correlation, the REST / OpenAI-function surface, the optional OTel mirror, and the
 anti-self-reinforcement / staleness guards.
 
 ## Quickstart
@@ -55,6 +59,20 @@ Register it with any MCP client (e.g. Claude Desktop / Claude Code):
 |---|---|---|
 | `EVALUAGENT_DB_PATH` (or `RLX_DB_PATH`) | `~/.evaluagent/ledger.db` | SQLite file (`:memory:` for ephemeral) |
 | `EVALUAGENT_PROJECT` (or `RLX_PROJECT`) | current dir name | default project scope for entries |
+
+## Capture the behavioral spine automatically (Claude Code)
+
+Print a ready-to-merge hooks snippet and add it to `.claude/settings.json`:
+
+```bash
+node dist/bin/ledger.js hooks-install
+```
+
+It wires `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, and `SessionEnd` to
+`evaluagent-hook`, which writes spine entries (source `hook_spine`) into the same ledger. The
+hook **always exits 0** so it can never break the agent, and tool inputs are stored only as a
+hashed digest. Outside Claude Code the bridge is simply absent and the ledger holds self-report
+entries only.
 
 ## Tools
 

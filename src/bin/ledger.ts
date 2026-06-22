@@ -1,27 +1,11 @@
 #!/usr/bin/env node
-import os from "node:os";
 import path from "node:path";
-import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 import { LedgerService } from "../service/ledger-service.js";
 import { createLedgerServer } from "../mcp/server.js";
-
-function resolveDbPath(): string {
-  const env = process.env.EVALUAGENT_DB_PATH ?? process.env.RLX_DB_PATH;
-  if (env) return env;
-  const dir = path.join(os.homedir(), ".evaluagent");
-  fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, "ledger.db");
-}
-
-function resolveProject(): string {
-  return (
-    process.env.EVALUAGENT_PROJECT ??
-    process.env.RLX_PROJECT ??
-    path.basename(process.cwd())
-  );
-}
+import { resolveDbPath, resolveProject } from "../config.js";
 
 async function serve(): Promise<void> {
   const dbPath = resolveDbPath();
@@ -36,13 +20,36 @@ async function serve(): Promise<void> {
   );
 }
 
+/** Print a .claude/settings.json hooks snippet wired to the built hook binary. */
+function hooksInstall(): void {
+  const hookBin = path.join(path.dirname(fileURLToPath(import.meta.url)), "ledger-hook.js");
+  const command = `node ${hookBin}`;
+  const oneHook = [{ hooks: [{ type: "command", command }] }];
+  const withMatcher = [{ matcher: "*", hooks: [{ type: "command", command }] }];
+  const snippet = {
+    hooks: {
+      SessionStart: oneHook,
+      PreToolUse: withMatcher,
+      PostToolUse: withMatcher,
+      Stop: oneHook,
+      SessionEnd: oneHook,
+    },
+  };
+  process.stdout.write(
+    "# Merge this into .claude/settings.json to feed the behavioral spine into the ledger:\n",
+  );
+  process.stdout.write(`${JSON.stringify(snippet, null, 2)}\n`);
+}
+
 const cmd = process.argv[2] ?? "serve";
 if (cmd === "serve") {
   serve().catch((e: unknown) => {
     process.stderr.write(`fatal: ${(e as Error).message}\n`);
     process.exit(1);
   });
+} else if (cmd === "hooks-install") {
+  hooksInstall();
 } else {
-  process.stderr.write(`unknown command: ${cmd}\nusage: evaluagent serve\n`);
+  process.stderr.write(`unknown command: ${cmd}\nusage: evaluagent <serve|hooks-install>\n`);
   process.exit(2);
 }

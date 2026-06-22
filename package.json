@@ -6,7 +6,8 @@
   "description": "Agent reasoning ledger — captures introspective reasoning (surprise, dead-ends, confidence, abandoned branches, reconstructions, friction) via MCP, for human analysis and future-instance recall.",
   "license": "MIT",
   "bin": {
-    "evaluagent": "./dist/bin/ledger.js"
+    "evaluagent": "./dist/bin/ledger.js",
+    "evaluagent-hook": "./dist/bin/ledger-hook.js"
   },
   "exports": {
     ".": "./dist/index.js"
