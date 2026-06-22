@@ -100,3 +100,51 @@ describe("SqliteRepository", () => {
     expect(out).toHaveLength(2);
   });
 });
+
+describe("SqliteRepository spine support", () => {
+  it("round-trips a spine entry with source and tool_name", async () => {
+    const r = makeRepo();
+    const saved = await r.insertEntry({
+      kind: "spine_tool",
+      project: "evaluagent",
+      title: "PreToolUse: Edit",
+      body: "about to run Edit",
+      payload: { phase: "pre", tool: "Edit", args_digest: "sha256:abc" },
+      source: "hook_spine",
+      toolName: "Edit",
+      sessionId: "sess-1",
+    });
+    expect(saved.source).toBe("hook_spine");
+    expect(saved.toolName).toBe("Edit");
+
+    const got = await r.getEntry(saved.id);
+    expect(got!.kind).toBe("spine_tool");
+    expect(got!.source).toBe("hook_spine");
+    expect(got!.toolName).toBe("Edit");
+    expect(got!.sessionId).toBe("sess-1");
+    expect(got!.payload).toEqual({ phase: "pre", tool: "Edit", args_digest: "sha256:abc" });
+  });
+
+  it("defaults source to self_report and tool_name to null for ordinary entries", async () => {
+    const r = makeRepo();
+    const saved = await r.insertEntry(newEntry());
+    expect(saved.source).toBe("self_report");
+    expect(saved.toolName).toBeNull();
+  });
+
+  it("filters by source", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "self" }));
+    await r.insertEntry({
+      kind: "spine_tool",
+      project: "evaluagent",
+      title: "spine",
+      body: "b",
+      payload: { phase: "pre" },
+      source: "hook_spine",
+      toolName: "Edit",
+    });
+    const out = await r.query({ project: "evaluagent", source: "self_report" });
+    expect(out.map((e) => e.title)).toEqual(["self"]);
+  });
+});

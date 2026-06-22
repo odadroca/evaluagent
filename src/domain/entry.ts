@@ -1,8 +1,15 @@
 import type { EntryKind } from "./entry-kinds.js";
+import type { SpineKind } from "./spine.js";
+
+/** Any stored kind: the six self-report kinds plus the hook-bridge spine kinds. */
+export type AnyKind = EntryKind | SpineKind;
+
+/** Where an entry came from. */
+export type EntrySource = "self_report" | "hook_spine";
 
 /** Input to record a new entry. Identity/time are assigned by the repository. */
 export interface NewEntry {
-  kind: EntryKind;
+  kind: AnyKind;
   project: string;
   title: string;
   body: string;
@@ -14,12 +21,16 @@ export interface NewEntry {
   tags?: string[];
   sessionId?: string | null;
   occurredAt?: string | null;
+  /** Defaults to "self_report" in the repository. */
+  source?: EntrySource;
+  /** Tool name for spine_tool entries; null otherwise. */
+  toolName?: string | null;
 }
 
 /** A stored entry. */
 export interface LedgerEntry {
   id: string;
-  kind: EntryKind;
+  kind: AnyKind;
   project: string;
   title: string;
   body: string;
@@ -30,6 +41,8 @@ export interface LedgerEntry {
   sessionId: string | null;
   occurredAt: string | null;
   createdAt: string;
+  source: EntrySource;
+  toolName: string | null;
 }
 
 /** v1 ranking modes. The `Ranker` seam will add "match"/"hybrid"/"semantic" later. */
@@ -37,9 +50,11 @@ export type RankMode = "recency";
 
 export interface LedgerQuery {
   project: string;
-  kinds?: EntryKind[];
+  kinds?: AnyKind[];
   /** Free-text match (LIKE in v1; FTS/semantic later). */
   text?: string;
+  /** Restrict to self-report vs hook-spine entries. */
+  source?: EntrySource;
   limit?: number;
   rank?: RankMode;
 }
