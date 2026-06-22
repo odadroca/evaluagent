@@ -84,6 +84,29 @@ describe("mapHookEvent", () => {
     expect(out[0]!.payload.ok).toBe(false);
   });
 
+  it("captures the failure message from the top-level error field", () => {
+    const out = mapHookEvent({
+      hook_event_name: "PostToolUseFailure",
+      session_id: "s1",
+      tool_name: "Bash",
+      tool_input: { command: "nope" },
+      error: "command not found",
+    });
+    expect(out[0]!.payload.ok).toBe(false);
+    expect(out[0]!.payload.error).toBe("command not found");
+  });
+
+  it("falls back to tool_response.error when there is no top-level error", () => {
+    const out = mapHookEvent({
+      hook_event_name: "PostToolUseFailure",
+      session_id: "s1",
+      tool_name: "Bash",
+      tool_input: { command: "false" },
+      tool_response: { error: "nested boom" },
+    });
+    expect(out[0]!.payload.error).toBe("nested boom");
+  });
+
   it("maps Stop and SessionEnd to lifecycle entries", () => {
     expect(mapHookEvent({ hook_event_name: "Stop", session_id: "s" })[0]!.kind).toBe(
       "spine_lifecycle",

@@ -41,6 +41,20 @@ function looksLikeError(response: unknown): boolean {
   return false;
 }
 
+/**
+ * Extract a failure message. PostToolUseFailure carries it as a top-level
+ * `error` field; fall back to `tool_response.error` for other shapes.
+ */
+function extractErrorMessage(event: HookEvent): string | undefined {
+  if (typeof event.error === "string") return event.error;
+  const resp = event.tool_response;
+  if (resp && typeof resp === "object") {
+    const err = (resp as Record<string, unknown>).error;
+    if (typeof err === "string") return err;
+  }
+  return undefined;
+}
+
 /** Build the `post` spine entry shared by PostToolUse (success) and PostToolUseFailure. */
 function postSpine(event: HookEvent, sessionId: string | null, ok: boolean): SpineWrite {
   const tool = event.tool_name ?? "unknown";
@@ -50,9 +64,9 @@ function postSpine(event: HookEvent, sessionId: string | null, ok: boolean): Spi
     args_digest: digestArgs(event.tool_input),
     ok,
   };
-  if (!ok && event.tool_response && typeof event.tool_response === "object") {
-    const err = (event.tool_response as Record<string, unknown>).error;
-    if (typeof err === "string") payload.error = err;
+  if (!ok) {
+    const err = extractErrorMessage(event);
+    if (err) payload.error = err;
   }
   return {
     kind: "spine_tool",
