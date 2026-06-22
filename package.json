@@ -1,0 +1,39 @@
+{
+  "name": "evaluagent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Agent reasoning ledger — captures introspective reasoning (surprise, dead-ends, confidence, abandoned branches, reconstructions, friction) via MCP, for human analysis and future-instance recall.",
+  "license": "MIT",
+  "bin": {
+    "evaluagent": "./dist/bin/ledger.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/bin/ledger.ts serve"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "@sinclair/typebox": "^0.33.0",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.1",
+    "better-sqlite3": "^11.8.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
