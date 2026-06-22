@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
-import type { LedgerRepository } from "../ledger-repository.js";
 import type { AnyKind, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
+import type { LedgerRepository, SpineMatch } from "../ledger-repository.js";
 
 // Monotonic so ids are strictly increasing even within the same millisecond —
 // ordering by id DESC then yields a deterministic most-recent-first sequence.
@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS entries (
   tags        TEXT NOT NULL DEFAULT '[]',
   payload     TEXT NOT NULL DEFAULT '{}',
   source      TEXT NOT NULL DEFAULT 'self_report',
-  tool_name   TEXT
+  tool_name   TEXT,
+  ref_entry_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_entries_project_created ON entries(project, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_project_kind   ON entries(project, kind, id DESC);
@@ -33,6 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_entries_session        ON entries(session_id, id 
 const COLUMN_MIGRATIONS: Array<{ name: string; ddl: string }> = [
   { name: "source", ddl: "ALTER TABLE entries ADD COLUMN source TEXT NOT NULL DEFAULT 'self_report'" },
   { name: "tool_name", ddl: "ALTER TABLE entries ADD COLUMN tool_name TEXT" },
+  { name: "ref_entry_id", ddl: "ALTER TABLE entries ADD COLUMN ref_entry_id TEXT" },
 ];
 
 interface Row {
@@ -50,6 +52,7 @@ interface Row {
   payload: string;
   source: string;
   tool_name: string | null;
+  ref_entry_id: string | null;
 }
 
 function toEntry(row: Row): LedgerEntry {
@@ -68,6 +71,7 @@ function toEntry(row: Row): LedgerEntry {
     createdAt: row.created_at,
     source: row.source as EntrySource,
     toolName: row.tool_name,
+    refEntryId: row.ref_entry_id,
   };
 }
 
@@ -109,13 +113,14 @@ export class SqliteRepository implements LedgerRepository {
       payload: JSON.stringify(entry.payload ?? {}),
       source: entry.source ?? "self_report",
       tool_name: entry.toolName ?? null,
+      ref_entry_id: entry.refEntryId ?? null,
     };
     this.db
       .prepare(
         `INSERT INTO entries
-          (id, project, session_id, kind, created_at, occurred_at, title, body, confidence, salience, tags, payload, source, tool_name)
+          (id, project, session_id, kind, created_at, occurred_at, title, body, confidence, salience, tags, payload, source, tool_name, ref_entry_id)
          VALUES
-          (@id, @project, @session_id, @kind, @created_at, @occurred_at, @title, @body, @confidence, @salience, @tags, @payload, @source, @tool_name)`,
+          (@id, @project, @session_id, @kind, @created_at, @occurred_at, @title, @body, @confidence, @salience, @tags, @payload, @source, @tool_name, @ref_entry_id)`,
       )
       .run(row);
     return toEntry(row);
@@ -149,6 +154,39 @@ export class SqliteRepository implements LedgerRepository {
 
     const rows = this.db.prepare(sql).all(...params) as Row[];
     return rows.map(toEntry);
+  }
+
+  async findOpenPre(match: SpineMatch): Promise<LedgerEntry | null> {
+    const row = this.db
+      .prepare(
+        `SELECT p.* FROM entries p
+         WHERE p.kind = 'spine_tool'
+           AND p.project = ?
+           AND p.session_id IS ?
+           AND p.tool_name = ?
+           AND json_extract(p.payload, '$.phase') = 'pre'
+           AND json_extract(p.payload, '$.args_digest') = ?
+           AND NOT EXISTS (SELECT 1 FROM entries q WHERE q.ref_entry_id = p.id)
+         ORDER BY p.id DESC LIMIT 1`,
+      )
+      .get(match.project, match.sessionId, match.tool, match.argsDigest) as Row | undefined;
+    return row ? toEntry(row) : null;
+  }
+
+  async findLatestPost(match: SpineMatch): Promise<LedgerEntry | null> {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM entries
+         WHERE kind = 'spine_tool'
+           AND project = ?
+           AND session_id IS ?
+           AND tool_name = ?
+           AND json_extract(payload, '$.phase') = 'post'
+           AND json_extract(payload, '$.args_digest') = ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(match.project, match.sessionId, match.tool, match.argsDigest) as Row | undefined;
+    return row ? toEntry(row) : null;
   }
 
   async close(): Promise<void> {

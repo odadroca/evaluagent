@@ -25,6 +25,8 @@ export interface NewEntry {
   source?: EntrySource;
   /** Tool name for spine_tool entries; null otherwise. */
   toolName?: string | null;
+  /** Link to another entry (e.g. a post spine entry → its pre). */
+  refEntryId?: string | null;
 }
 
 /** A stored entry. */
@@ -43,6 +45,7 @@ export interface LedgerEntry {
   createdAt: string;
   source: EntrySource;
   toolName: string | null;
+  refEntryId: string | null;
 }
 
 /** v1 ranking modes. The `Ranker` seam will add "match"/"hybrid"/"semantic" later. */

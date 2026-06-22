@@ -157,3 +157,60 @@ describe("LedgerService spine + recall scoping", () => {
     expect(out.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
   });
 });
+
+describe("LedgerService spine pre/post correlation", () => {
+  const pre = {
+    kind: "spine_tool" as const,
+    title: "PreToolUse: Edit",
+    body: "about to run Edit",
+    toolName: "Edit",
+    sessionId: "s1",
+    payload: { phase: "pre", tool: "Edit", args_digest: "sha256:aaa" },
+  };
+  const post = {
+    kind: "spine_tool" as const,
+    title: "PostToolUse: Edit",
+    body: "finished Edit",
+    toolName: "Edit",
+    sessionId: "s1",
+    payload: { phase: "post", tool: "Edit", args_digest: "sha256:aaa", ok: true },
+  };
+  const payloadOf = (e: { payload: unknown }) => e.payload as Record<string, unknown>;
+
+  it("links a post to its open pre and records a duration", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    const recordedPre = await s.recordSpine(pre);
+    const recordedPost = await s.recordSpine(post);
+
+    expect(recordedPost.refEntryId).toBe(recordedPre.id);
+    expect(typeof payloadOf(recordedPost).duration_ms).toBe("number");
+    expect(payloadOf(recordedPost).duration_ms as number).toBeGreaterThanOrEqual(0);
+  });
+
+  it("does not link a post when there is no matching pre", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    const orphan = await s.recordSpine({
+      ...post,
+      payload: { phase: "post", tool: "Edit", args_digest: "sha256:zzz", ok: true },
+    });
+    expect(orphan.refEntryId).toBeNull();
+    expect(payloadOf(orphan).duration_ms).toBeUndefined();
+  });
+
+  it("does not re-link the same pre to a second post", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    const recordedPre = await s.recordSpine(pre);
+    const post1 = await s.recordSpine(post);
+    const post2 = await s.recordSpine(post);
+    expect(post1.refEntryId).toBe(recordedPre.id);
+    expect(post2.refEntryId).toBeNull();
+  });
+
+  it("flags a repeated pre (same tool+args) as a retry of the prior post", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.recordSpine(pre);
+    const post1 = await s.recordSpine(post);
+    const pre2 = await s.recordSpine(pre);
+    expect(payloadOf(pre2).retry_of).toBe(post1.id);
+  });
+});

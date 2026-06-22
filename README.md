@@ -17,12 +17,14 @@ A working slice, end-to-end:
   behavioral spine (tool calls + lifecycle), stored alongside self-report entries. Tool args
   are **hashed, never stored raw**. `recall_reasoning` defaults to self-report so spine noise
   never drowns the lessons.
+- **Pre/post correlation** (across separate hook processes, via the shared DB): each
+  `PostToolUse` links to its `PreToolUse` (`ref_entry_id`) with a wall-clock `duration_ms`, and
+  a repeated identical call is flagged `retry_of`.
 - Swappable storage (`LedgerRepository`) and ranking (`Ranker`) seams, so Postgres + pgvector /
   semantic ranking drop in later without touching the service or gateways.
 
-Not yet built (see the plan's phasing): tags + FTS + hybrid ranking, pre/post duration &
-retry correlation, the REST / OpenAI-function surface, the optional OTel mirror, and the
-anti-self-reinforcement / staleness guards.
+Not yet built (see the plan's phasing): tags + FTS + hybrid ranking, the REST / OpenAI-function
+surface, the optional OTel mirror, and the anti-self-reinforcement / staleness guards.
 
 ## Quickstart
 
