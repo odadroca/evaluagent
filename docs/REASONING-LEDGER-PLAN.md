@@ -111,6 +111,20 @@ machinery." See the reuse map in the architecture doc.
    quickstart.
 6. **(Future, unblocked)** — Postgres + pgvector repo behind the same interface;
    `SemanticRanker`; optional Calane-native reflection pipeline.
+7. **Consolidation / reflection — the third beat of the loop.** The loop is
+   **capture → recall → consolidate**: a periodic pass reads accumulated `self_report` entries,
+   distils the recurring/durable ones, and **promotes** them to always-on memory (`CLAUDE.md`
+   / project memory) — because the ledger is queried on demand, whereas `CLAUDE.md` loads every
+   session. Mirrors the memory-consolidation / higher-order-reflection step from the research
+   (Generative Agents, Reflexion). Principles: ruthless selectivity (salience is the dial —
+   record little, high-signal; noise drowns signal); **prune what rots** (a lesson invalidated
+   by code changes actively misleads — deleting matters as much as adding); two tiers (ledger =
+   on-demand long tail; `CLAUDE.md` = the few universals).
+   Mechanism note: consolidation needs *judgment* (an agent), so it can't be a pure shell hook,
+   and the ledger is a **local** SQLite file (a cloud-scheduled routine can't read it) — so v1
+   runs **on request in a local session**; an optional `SessionStart` *nudge* hook (count new
+   `self_report` since last pass) and a first-class `consolidate` routine are later options.
+   Don't automate prematurely — wait until ~15-20 lessons accumulate so a pass has signal.
 
 ## 6. Verification (of the future build)
 
