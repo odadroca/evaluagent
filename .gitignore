@@ -1,0 +1,25 @@
+# Claude Code local session memory + personal config (not part of the project)
+.remember/
+.claude/settings.local.json
+
+# Node / build
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local data / SQLite
+*.sqlite
+*.sqlite-journal
+*.db
+.runs/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
