@@ -116,8 +116,8 @@ explainability; nice-to-have).
 
 ## 5. Edge cases & decisions
 - **Empty/blank `text`** → no FTS predicate. `hybrid` ranks the recent pool by recency +
-  salience (text term contributes 0); `match` with no `text` **behaves like `recency`** (nothing
-  to match strictly); `recency` is unaffected.
+  salience (text term contributes 0); `match` with no `text` yields no results (strict, nothing
+  to match); `recency` is unaffected.
 - **FTS special characters** in terms → quoting each token neutralizes them.
 - **De-dup** in hybrid union (an FTS match that's also recent appears once, keeping its bm25).
 - **Candidate pool cap (~200)** bounds in-app sort cost; the final `limit` is clamped 1..100.
