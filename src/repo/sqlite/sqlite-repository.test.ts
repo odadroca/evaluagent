@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { tmpdir } from "node:os";
 import { SqliteRepository } from "./sqlite-repository.js";
 
 let repo: SqliteRepository;
@@ -98,6 +99,40 @@ describe("SqliteRepository", () => {
     for (let i = 0; i < 5; i++) await r.insertEntry(newEntry({ title: `e${i}` }));
     const out = await r.query({ project: "evaluagent", limit: 2 });
     expect(out).toHaveLength(2);
+  });
+});
+
+describe("SqliteRepository FTS index", () => {
+  // Helper reaching into the raw db to assert FTS rows match.
+  function ftsHits(r: SqliteRepository, match: string): number {
+    // @ts-expect-error access private db for a white-box index assertion
+    const db = r.db as import("better-sqlite3").Database;
+    return (db.prepare("SELECT count(*) c FROM entries_fts WHERE entries_fts MATCH ?").get(match) as { c: number }).c;
+  }
+
+  it("indexes inserted entries for full-text + stemmed match", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "the server is running", body: "vite dev" }));
+    expect(ftsHits(r, '"running"')).toBe(1);
+    expect(ftsHits(r, '"run"')).toBe(1); // porter stemming
+    expect(ftsHits(r, '"absent"')).toBe(0);
+  });
+
+  it("backfills pre-existing rows on open (rebuild)", async () => {
+    const path = `${tmpdir()}/evg-fts-${Date.now()}-${Math.floor(Math.random() * 1e6)}.db`;
+    // Seed an entry, then drop the FTS index to simulate an old DB without FTS.
+    const first = new SqliteRepository(path);
+    await first.insertEntry(newEntry({ title: "backfilled lesson", body: "x" }));
+    // @ts-expect-error white-box
+    (first.db as import("better-sqlite3").Database).exec("DROP TABLE entries_fts");
+    await first.close();
+
+    const reopened = new SqliteRepository(path); // constructor must rebuild FTS
+    // @ts-expect-error white-box
+    const db = reopened.db as import("better-sqlite3").Database;
+    const hits = (db.prepare("SELECT count(*) c FROM entries_fts WHERE entries_fts MATCH ?").get('"backfilled"') as { c: number }).c;
+    expect(hits).toBe(1);
+    await reopened.close();
   });
 });
 

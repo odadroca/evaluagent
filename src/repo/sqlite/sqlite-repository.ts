@@ -31,6 +31,24 @@ CREATE INDEX IF NOT EXISTS idx_entries_project_kind   ON entries(project, kind, 
 CREATE INDEX IF NOT EXISTS idx_entries_session        ON entries(session_id, id DESC);
 `;
 
+const FTS_DDL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+  title, body,
+  content='entries', content_rowid='rowid',
+  tokenize='porter unicode61 remove_diacritics 1'
+);
+CREATE TRIGGER IF NOT EXISTS entries_fts_ai AFTER INSERT ON entries BEGIN
+  INSERT INTO entries_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS entries_fts_ad AFTER DELETE ON entries BEGIN
+  INSERT INTO entries_fts(entries_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS entries_fts_au AFTER UPDATE ON entries BEGIN
+  INSERT INTO entries_fts(entries_fts, rowid, title, body) VALUES ('delete', old.rowid, old.title, old.body);
+  INSERT INTO entries_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body);
+END;
+`;
+
 /** Columns added after the initial schema; added to pre-existing DBs on open. */
 const COLUMN_MIGRATIONS: Array<{ name: string; ddl: string }> = [
   { name: "source", ddl: "ALTER TABLE entries ADD COLUMN source TEXT NOT NULL DEFAULT 'self_report'" },
@@ -84,6 +102,23 @@ export class SqliteRepository implements LedgerRepository {
     this.db.pragma("journal_mode = WAL");
     this.db.exec(DDL);
     this.migrateColumns();
+    this.migrateFts();
+  }
+
+  /** Create the FTS index + triggers and backfill pre-existing rows (idempotent). */
+  private migrateFts(): void {
+    const existed = (
+      this.db
+        .prepare("SELECT count(*) c FROM sqlite_master WHERE type='table' AND name='entries_fts'")
+        .get() as { c: number }
+    ).c > 0;
+    this.db.exec(FTS_DDL);
+    if (!existed) {
+      const ent = this.db.prepare("SELECT count(*) c FROM entries").get() as { c: number };
+      if (ent.c > 0) {
+        this.db.exec("INSERT INTO entries_fts(entries_fts) VALUES('rebuild')");
+      }
+    }
   }
 
   /** Add any columns missing from a pre-existing DB (idempotent). */
