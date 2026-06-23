@@ -165,12 +165,40 @@ describe("LedgerService spine + recall scoping", () => {
     expect(out.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
   });
 
-  it("defaults to recency (not hybrid) when no rank is given", async () => {
+  it("explicit rank:recency preserves insertion order (newest first)", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await s.record({ ...surprise, title: "older-high-salience", salience: 3 });
     await s.record({ ...surprise, title: "newer-no-salience", salience: 0 });
-    const out = await s.recall({}); // no rank → recency (newest first), NOT salience-boosted hybrid
+    const out = await s.recall({ rank: "recency" });
     expect(out.map((e) => e.title)).toEqual(["newer-no-salience", "older-high-salience"]);
+  });
+});
+
+describe("LedgerService.recall (FTS + hybrid)", () => {
+  it("hybrid (default) returns a relevant entry for a multi-word query that lacks a full match", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.record({
+      kind: "surprise",
+      title: "Claude Code hooks hot-reload, but mcp add does not",
+      body: "writing hooks into settings took effect with no restart",
+      payload: { expected: "restart needed", actual: "hot reload", magnitude: 2 },
+    });
+    await s.record({ ...surprise, title: "totally unrelated", body: "nothing relevant" });
+    const out = await s.recall({ text: "hooks restart mcp" });
+    expect(out[0]!.title).toContain("hooks hot-reload");
+  });
+
+  it("match mode can be empty", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.record({ ...surprise, title: "alpha", body: "beta" });
+    expect(await s.recall({ rank: "match", text: "zzzzz" })).toHaveLength(0);
+  });
+
+  it("recency mode preserves insertion order (unchanged behavior)", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.record({ ...surprise, title: "first" });
+    await s.record({ ...surprise, title: "second" });
+    expect((await s.recall({ rank: "recency" })).map((e) => e.title)).toEqual(["second", "first"]);
   });
 });
 

@@ -103,10 +103,15 @@ export class LedgerService {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
     const source: EntrySource = input.source ?? "self_report";
+    const rank: RankMode = input.rank ?? "hybrid";
     const limit = clampLimit(input.limit, RECALL_MAX_LIMIT);
-    const rank: RankMode = input.rank ?? "recency";
     const query: LedgerQuery = { ...input, project, source, rank, limit };
-    const candidates = (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }));
+
+    const candidates =
+      rank === "recency"
+        ? (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
+        : await this.repo.search(query);
+
     return this.ranker.rank(query, candidates);
   }
 
