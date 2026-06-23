@@ -11,9 +11,15 @@ function byIdDesc(a: Candidate, b: Candidate): number {
   return a.entry.id < b.entry.id ? 1 : a.entry.id > b.entry.id ? -1 : 0;
 }
 
-/** Clamp salience to the documented 0..3 range — stored values aren't trusted here. */
-function clampSalience(v: number | undefined): number {
-  return Math.min(3, Math.max(0, v ?? 0));
+/**
+ * Clamp salience to the documented 0..3 range. Stored values aren't trusted here — legacy
+ * rows may hold non-numeric junk — so coerce and require finiteness, defaulting to 0,
+ * before clamping (a NaN would otherwise poison the whole hybrid score).
+ */
+function clampSalience(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(3, Math.max(0, n));
 }
 
 export class HybridRanker implements Ranker {

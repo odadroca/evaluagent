@@ -89,4 +89,20 @@ describe("HybridRanker", () => {
     ]);
     expect(out[0]!.id).toBe("01_0001");
   });
+
+  it("treats a non-numeric stored salience as 0 (cannot NaN-poison ranking)", () => {
+    // Legacy data written before salience validation could be a string; coercion must
+    // not yield NaN (which would null out the score and fall to the id tiebreak).
+    const strong = entry({ id: "01_0001", createdAt: "2026-06-22T00:00:00.000Z", salience: 0 });
+    const junk = entry({
+      id: "01_0002",
+      createdAt: "2026-06-22T00:00:00.000Z",
+      salience: "high" as unknown as number,
+    });
+    const out = ranker.rank({ project: "p", rank: "hybrid", text: "x" }, [
+      cand(junk, null),
+      cand(strong, -9),
+    ]);
+    expect(out[0]!.id).toBe("01_0001");
+  });
 });
