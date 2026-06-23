@@ -77,4 +77,16 @@ describe("HybridRanker", () => {
     const cands = [entry(), entry(), entry()].map((e) => cand(e, null));
     expect(ranker.rank({ project: "p", rank: "hybrid", limit: 2 }, cands)).toHaveLength(2);
   });
+
+  it("does not let an out-of-range salience dominate a strong text match", () => {
+    // Same createdAt → equal recency. strong is a strong FTS match; junk has an absurd
+    // (unvalidated) salience but no text match. Clamped salience must not let junk win.
+    const strong = entry({ id: "01_0001", createdAt: "2026-06-22T00:00:00.000Z", salience: 0 });
+    const junk = entry({ id: "01_0002", createdAt: "2026-06-22T00:00:00.000Z", salience: 100 });
+    const out = ranker.rank({ project: "p", rank: "hybrid", text: "x" }, [
+      cand(junk, null),
+      cand(strong, -9),
+    ]);
+    expect(out[0]!.id).toBe("01_0001");
+  });
 });

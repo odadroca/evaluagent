@@ -77,6 +77,12 @@ export class LedgerService {
         "the 'confidence' kind requires a confidence score in [0,1]",
       );
     }
+    if (
+      input.salience != null &&
+      (!Number.isInteger(input.salience) || input.salience < 0 || input.salience > 3)
+    ) {
+      throw new LedgerValidationError("salience must be an integer in [0,3]");
+    }
 
     const project = input.project ?? this.defaultProject;
     if (!project) {
