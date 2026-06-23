@@ -125,6 +125,13 @@ machinery." See the reuse map in the architecture doc.
    runs **on request in a local session**; an optional `SessionStart` *nudge* hook (count new
    `self_report` since last pass) and a first-class `consolidate` routine are later options.
    Don't automate prematurely — wait until ~15-20 lessons accumulate so a pass has signal.
+   **Prerequisite — a retire/delete operation on the MCP surface.** Pruning is half of
+   consolidation, but the tool surface is currently write+read only; retiring a stale lesson
+   today requires a raw `DELETE` on the SQLite file (done once by hand during the first
+   consolidation, when Phase 2 invalidated the "recall is substring-only" lesson). Add a
+   first-class `forget_reasoning` / `delete_reasoning` MCP tool (delete by `entry_id`, or a
+   supersede that marks an entry stale) so consolidation can prune through the same interface
+   it reads/writes through. Until then, pruning is a manual, controller-side step.
 
 ## 6. Verification (of the future build)
 
