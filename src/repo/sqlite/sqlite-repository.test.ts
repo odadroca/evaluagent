@@ -136,6 +136,39 @@ describe("SqliteRepository FTS index", () => {
   });
 });
 
+describe("SqliteRepository.search", () => {
+  it("match: OR-joins terms so any term hits, scored by bm25", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "hooks hot-reload", body: "claude code mcp add" }));
+    await r.insertEntry(newEntry({ title: "unrelated", body: "nothing here" }));
+    const out = await r.search({ project: "evaluagent", rank: "match", text: "hooks restart mcp" });
+    expect(out.map((c) => c.entry.title)).toEqual(["hooks hot-reload"]);
+    expect(typeof out[0]!.textScore).toBe("number");
+  });
+
+  it("match: returns empty when no term matches", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "alpha", body: "beta" }));
+    expect(await r.search({ project: "evaluagent", rank: "match", text: "zzz" })).toHaveLength(0);
+  });
+
+  it("hybrid: unions FTS matches with the recent pool (never empty when entries exist)", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "alpha", body: "beta" }));
+    const out = await r.search({ project: "evaluagent", rank: "hybrid", text: "zzz" });
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((c) => c.textScore === null)).toBe(true); // no FTS hit → recency pool only
+  });
+
+  it("scopes by project and source", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "evaluagent", title: "mine hooks" }));
+    await r.insertEntry(newEntry({ project: "other", title: "theirs hooks" }));
+    const out = await r.search({ project: "evaluagent", rank: "match", text: "hooks" });
+    expect(out.map((c) => c.entry.title)).toEqual(["mine hooks"]);
+  });
+});
+
 describe("SqliteRepository spine support", () => {
   it("round-trips a spine entry with source and tool_name", async () => {
     const r = makeRepo();

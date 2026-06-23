@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
-import type { AnyKind, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
+import type { AnyKind, Candidate, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
 import type { LedgerRepository, SpineMatch } from "../ledger-repository.js";
 import { clampLimit } from "../../domain/limits.js";
 
@@ -93,6 +93,19 @@ function toEntry(row: Row): LedgerEntry {
     refEntryId: row.ref_entry_id,
   };
 }
+
+/** Build a forgiving FTS5 MATCH expression: quote each term, OR them. Null if no text. */
+function buildMatchExpr(text: string | undefined): string | null {
+  if (!text) return null;
+  const terms = text
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => `"${t.replace(/"/g, '""')}"`);
+  return terms.length > 0 ? terms.join(" OR ") : null;
+}
+
+const SEARCH_POOL = 200;
 
 export class SqliteRepository implements LedgerRepository {
   private readonly db: Database.Database;
@@ -190,6 +203,49 @@ export class SqliteRepository implements LedgerRepository {
 
     const rows = this.db.prepare(sql).all(...params) as Row[];
     return rows.map(toEntry);
+  }
+
+  async search(q: LedgerQuery): Promise<Candidate[]> {
+    const scope = ["e.project = ?"];
+    const scopeParams: unknown[] = [q.project];
+    if (q.kinds && q.kinds.length > 0) {
+      scope.push(`e.kind IN (${q.kinds.map(() => "?").join(", ")})`);
+      scopeParams.push(...q.kinds);
+    }
+    if (q.source) {
+      scope.push("e.source = ?");
+      scopeParams.push(q.source);
+    }
+    const scopeSql = scope.join(" AND ");
+
+    const matchExpr = buildMatchExpr(q.text);
+    const ftsRows = matchExpr
+      ? (this.db
+          .prepare(
+            `SELECT e.*, bm25(entries_fts) AS bm25
+             FROM entries_fts JOIN entries e ON e.rowid = entries_fts.rowid
+             WHERE entries_fts MATCH ? AND ${scopeSql}
+             ORDER BY bm25 LIMIT ?`,
+          )
+          .all(matchExpr, ...scopeParams, SEARCH_POOL) as Array<Row & { bm25: number }>)
+      : [];
+
+    const candidates: Candidate[] = ftsRows.map((r) => ({ entry: toEntry(r), textScore: r.bm25 }));
+
+    if ((q.rank ?? "hybrid") === "match") return candidates;
+
+    // hybrid: pad with the recent pool (so recall is never a false-empty)
+    const seen = new Set(ftsRows.map((r) => r.id));
+    const recent = this.db
+      .prepare(`SELECT e.* FROM entries e WHERE ${scopeSql} ORDER BY e.id DESC LIMIT ?`)
+      .all(...scopeParams, SEARCH_POOL) as Row[];
+    for (const r of recent) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        candidates.push({ entry: toEntry(r), textScore: null });
+      }
+    }
+    return candidates;
   }
 
   async findOpenPre(match: SpineMatch): Promise<LedgerEntry | null> {
