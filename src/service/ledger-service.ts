@@ -1,4 +1,4 @@
-import type { EntrySource, LedgerEntry, LedgerQuery } from "../domain/entry.js";
+import type { EntrySource, LedgerEntry, LedgerQuery, RankMode } from "../domain/entry.js";
 import type { LedgerRepository } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
@@ -104,7 +104,8 @@ export class LedgerService {
     }
     const source: EntrySource = input.source ?? "self_report";
     const limit = clampLimit(input.limit, RECALL_MAX_LIMIT);
-    const query: LedgerQuery = { ...input, project, source, limit };
+    const rank: RankMode = input.rank ?? "recency";
+    const query: LedgerQuery = { ...input, project, source, rank, limit };
     const candidates = (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }));
     return this.ranker.rank(query, candidates);
   }

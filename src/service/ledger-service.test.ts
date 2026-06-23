@@ -164,6 +164,14 @@ describe("LedgerService spine + recall scoping", () => {
     const out = await s.recall({ source: "hook_spine" });
     expect(out.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
   });
+
+  it("defaults to recency (not hybrid) when no rank is given", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.record({ ...surprise, title: "older-high-salience", salience: 3 });
+    await s.record({ ...surprise, title: "newer-no-salience", salience: 0 });
+    const out = await s.recall({}); // no rank → recency (newest first), NOT salience-boosted hybrid
+    expect(out.map((e) => e.title)).toEqual(["newer-no-salience", "older-high-salience"]);
+  });
 });
 
 describe("LedgerService spine pre/post correlation", () => {
