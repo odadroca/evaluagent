@@ -9,7 +9,7 @@ export * from "./repo/sqlite/sqlite-repository.js";
 
 // Service
 export * from "./service/ledger-service.js";
-export * from "./service/simple-ranker.js";
+export * from "./service/hybrid-ranker.js";
 
 // MCP gateway
 export * from "./mcp/server.js";

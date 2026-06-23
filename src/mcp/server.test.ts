@@ -86,6 +86,29 @@ describe("MCP ledger server", () => {
     expect(res.isError).toBe(true);
   });
 
+  it("recall_reasoning resolves the multi-word query that the dogfood missed", async () => {
+    const client = await connectedClient();
+    await service.record({
+      kind: "surprise",
+      title: "noise",
+      body: "irrelevant",
+      payload: { expected: "a", actual: "b", magnitude: 1 },
+    });
+    await service.record({
+      kind: "surprise",
+      title: "Claude Code hooks hot-reload, but mcp add does not",
+      body: "writing hooks into settings took effect with no restart",
+      payload: { expected: "restart", actual: "hot reload", magnitude: 2 },
+    });
+    const res = await client.callTool({
+      name: "recall_reasoning",
+      arguments: { text: "hooks restart mcp", rank: "match" },
+    });
+    const out = JSON.parse(textOf(res));
+    expect(out.count).toBe(1);
+    expect(out.entries[0].title).toContain("hooks hot-reload");
+  });
+
   it("recalls hook_spine entries when source is provided (default hides them)", async () => {
     const client = await connectedClient();
     await service.recordSpine({

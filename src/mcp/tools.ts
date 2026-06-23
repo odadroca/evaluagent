@@ -35,7 +35,7 @@ export const TOOLS: Tool[] = [
   {
     name: "recall_reasoning",
     description:
-      "Recall the most relevant past reasoning entries for the current work (recency-ranked in v1). Use at the start of a task to learn from earlier instances.",
+      "Recall the most relevant past reasoning entries for the current work. Defaults to hybrid ranking (blends text match, recency, salience, and tags). Use at the start of a task to learn from earlier instances.",
     inputSchema: {
       type: "object",
       properties: {
@@ -48,6 +48,13 @@ export const TOOLS: Tool[] = [
           description:
             "Defaults to self_report (the lessons). Pass hook_spine to read the automatic tool/lifecycle spine.",
         },
+        rank: {
+          type: "string",
+          enum: ["recency", "match", "hybrid"],
+          description:
+            "recency = newest first; match = strict FTS matches only (can be empty); hybrid = best-available, blends text + recency + salience + tags (default).",
+        },
+        tags: { type: "array", items: { type: "string" }, description: "Filter/boost by tag overlap." },
         limit: { type: "integer", minimum: 1, maximum: 100 },
       },
       additionalProperties: false,

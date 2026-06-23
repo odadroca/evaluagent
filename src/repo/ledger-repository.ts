@@ -1,4 +1,4 @@
-import type { LedgerEntry, LedgerQuery, NewEntry } from "../domain/entry.js";
+import type { Candidate, LedgerEntry, LedgerQuery, NewEntry } from "../domain/entry.js";
 
 /** Identifies a specific tool invocation across separate hook processes. */
 export interface SpineMatch {
@@ -16,6 +16,8 @@ export interface LedgerRepository {
   insertEntry(entry: NewEntry): Promise<LedgerEntry>;
   getEntry(id: string): Promise<LedgerEntry | null>;
   query(q: LedgerQuery): Promise<LedgerEntry[]>;
+  /** FTS-aware candidate fetch for match/hybrid ranking. */
+  search(q: LedgerQuery): Promise<Candidate[]>;
   /** The most recent `pre` spine entry for a tool invocation not yet linked to a post. */
   findOpenPre(match: SpineMatch): Promise<LedgerEntry | null>;
   /** The most recent `post` spine entry for a tool invocation (for retry detection). */

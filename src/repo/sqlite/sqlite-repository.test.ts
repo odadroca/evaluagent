@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { tmpdir } from "node:os";
 import { SqliteRepository } from "./sqlite-repository.js";
 
 let repo: SqliteRepository;
@@ -98,6 +99,73 @@ describe("SqliteRepository", () => {
     for (let i = 0; i < 5; i++) await r.insertEntry(newEntry({ title: `e${i}` }));
     const out = await r.query({ project: "evaluagent", limit: 2 });
     expect(out).toHaveLength(2);
+  });
+});
+
+describe("SqliteRepository FTS index", () => {
+  // Helper reaching into the raw db to assert FTS rows match.
+  function ftsHits(r: SqliteRepository, match: string): number {
+    // @ts-expect-error access private db for a white-box index assertion
+    const db = r.db as import("better-sqlite3").Database;
+    return (db.prepare("SELECT count(*) c FROM entries_fts WHERE entries_fts MATCH ?").get(match) as { c: number }).c;
+  }
+
+  it("indexes inserted entries for full-text + stemmed match", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "the server is running", body: "vite dev" }));
+    expect(ftsHits(r, '"running"')).toBe(1);
+    expect(ftsHits(r, '"run"')).toBe(1); // porter stemming
+    expect(ftsHits(r, '"absent"')).toBe(0);
+  });
+
+  it("backfills pre-existing rows on open (rebuild)", async () => {
+    const path = `${tmpdir()}/evg-fts-${Date.now()}-${Math.floor(Math.random() * 1e6)}.db`;
+    // Seed an entry, then drop the FTS index to simulate an old DB without FTS.
+    const first = new SqliteRepository(path);
+    await first.insertEntry(newEntry({ title: "backfilled lesson", body: "x" }));
+    // @ts-expect-error white-box
+    (first.db as import("better-sqlite3").Database).exec("DROP TABLE entries_fts");
+    await first.close();
+
+    const reopened = new SqliteRepository(path); // constructor must rebuild FTS
+    // @ts-expect-error white-box
+    const db = reopened.db as import("better-sqlite3").Database;
+    const hits = (db.prepare("SELECT count(*) c FROM entries_fts WHERE entries_fts MATCH ?").get('"backfilled"') as { c: number }).c;
+    expect(hits).toBe(1);
+    await reopened.close();
+  });
+});
+
+describe("SqliteRepository.search", () => {
+  it("match: OR-joins terms so any term hits, scored by bm25", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "hooks hot-reload", body: "claude code mcp add" }));
+    await r.insertEntry(newEntry({ title: "unrelated", body: "nothing here" }));
+    const out = await r.search({ project: "evaluagent", rank: "match", text: "hooks restart mcp" });
+    expect(out.map((c) => c.entry.title)).toEqual(["hooks hot-reload"]);
+    expect(typeof out[0]!.textScore).toBe("number");
+  });
+
+  it("match: returns empty when no term matches", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "alpha", body: "beta" }));
+    expect(await r.search({ project: "evaluagent", rank: "match", text: "zzz" })).toHaveLength(0);
+  });
+
+  it("hybrid: unions FTS matches with the recent pool (never empty when entries exist)", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ title: "alpha", body: "beta" }));
+    const out = await r.search({ project: "evaluagent", rank: "hybrid", text: "zzz" });
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((c) => c.textScore === null)).toBe(true); // no FTS hit → recency pool only
+  });
+
+  it("scopes by project and source", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "evaluagent", title: "mine hooks" }));
+    await r.insertEntry(newEntry({ project: "other", title: "theirs hooks" }));
+    const out = await r.search({ project: "evaluagent", rank: "match", text: "hooks" });
+    expect(out.map((c) => c.entry.title)).toEqual(["mine hooks"]);
   });
 });
 

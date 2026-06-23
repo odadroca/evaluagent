@@ -1,10 +1,10 @@
-import type { EntrySource, LedgerEntry, LedgerQuery } from "../domain/entry.js";
+import type { EntrySource, LedgerEntry, LedgerQuery, RankMode } from "../domain/entry.js";
 import type { LedgerRepository } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
 import { isEntryKind, validatePayload } from "../domain/entry-kinds.js";
 import { clampLimit, RECALL_MAX_LIMIT } from "../domain/limits.js";
-import { SimpleRanker } from "./simple-ranker.js";
+import { HybridRanker } from "./hybrid-ranker.js";
 
 export class LedgerValidationError extends Error {
   readonly errors: string[];
@@ -49,7 +49,7 @@ export class LedgerService {
 
   constructor(opts: LedgerServiceOptions) {
     this.repo = opts.repo;
-    this.ranker = opts.ranker ?? new SimpleRanker();
+    this.ranker = opts.ranker ?? new HybridRanker();
     this.defaultProject = opts.defaultProject;
   }
 
@@ -103,9 +103,15 @@ export class LedgerService {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
     const source: EntrySource = input.source ?? "self_report";
+    const rank: RankMode = input.rank ?? "hybrid";
     const limit = clampLimit(input.limit, RECALL_MAX_LIMIT);
-    const query: LedgerQuery = { ...input, project, source, limit };
-    const candidates = await this.repo.query(query);
+    const query: LedgerQuery = { ...input, project, source, rank, limit };
+
+    const candidates =
+      rank === "recency"
+        ? (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
+        : await this.repo.search(query);
+
     return this.ranker.rank(query, candidates);
   }
 

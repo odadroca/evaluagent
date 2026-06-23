@@ -48,16 +48,24 @@ export interface LedgerEntry {
   refEntryId: string | null;
 }
 
-/** v1 ranking modes. The `Ranker` seam will add "match"/"hybrid"/"semantic" later. */
-export type RankMode = "recency";
+/** v1 ranking modes. */
+export type RankMode = "recency" | "match" | "hybrid";
 
 export interface LedgerQuery {
   project: string;
   kinds?: AnyKind[];
-  /** Free-text match (LIKE in v1; FTS/semantic later). */
+  /** Free-text match (FTS5 in v2). */
   text?: string;
   /** Restrict to self-report vs hook-spine entries. */
   source?: EntrySource;
+  /** Tag filter/boost input (lowercased overlap with entry tags). */
+  tags?: string[];
   limit?: number;
   rank?: RankMode;
+}
+
+/** A retrieval candidate: the entry plus its raw FTS bm25 (lower=better; null if not an FTS hit). */
+export interface Candidate {
+  entry: LedgerEntry;
+  textScore: number | null;
 }

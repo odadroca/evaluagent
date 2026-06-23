@@ -7,11 +7,11 @@ analyze patterns over time **and a future agent instance can recall the relevant
 Design background lives in [`docs/REASONING-LEDGER-PLAN.md`](./docs/REASONING-LEDGER-PLAN.md)
 and [`docs/REASONING-LEDGER-ARCHITECTURE.md`](./docs/REASONING-LEDGER-ARCHITECTURE.md).
 
-## Status — Phases 1 + 3
+## Status — Phases 1–2
 
 A working slice, end-to-end:
 
-- **Record / recall over MCP**, backed by **SQLite**, recency-ranked.
+- **Record / recall over MCP**, backed by **SQLite**, hybrid-ranked (FTS5 full-text + recency + salience + tag overlap).
 - TypeBox + Ajv validation of the six introspective entry kinds.
 - **Claude Code hook bridge**: a `evaluagent-hook` binary turns hook events into an automatic
   behavioral spine (tool calls + lifecycle), stored alongside self-report entries. Tool args
@@ -23,8 +23,8 @@ A working slice, end-to-end:
 - Swappable storage (`LedgerRepository`) and ranking (`Ranker`) seams, so Postgres + pgvector /
   semantic ranking drop in later without touching the service or gateways.
 
-Not yet built (see the plan's phasing): tags + FTS + hybrid ranking, the REST / OpenAI-function
-surface, the optional OTel mirror, and the anti-self-reinforcement / staleness guards.
+Not yet built (see the plan's phasing): the REST / OpenAI-function surface, the optional OTel mirror,
+and the anti-self-reinforcement / staleness guards.
 
 ## Quickstart
 
@@ -95,7 +95,7 @@ Code the bridge is simply absent and the ledger holds self-report entries only.
 
 - **`record_reasoning`** `{ kind, title, body, payload, project?, confidence?, salience?, tags?, session_id?, occurred_at? }`
   — store one introspective entry. `kind` ∈ `surprise | dead_end | confidence | abandoned_branch | reconstruction | friction`; `payload` is validated per kind.
-- **`recall_reasoning`** `{ project?, kinds?, text?, source?, limit? }` — recency-ranked relevant entries (the next-instance loop). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `limit` is clamped to 1..100.
+- **`recall_reasoning`** `{ project?, kinds?, text?, source?, rank?, tags?, limit? }` — relevant entries ranked by hybrid (FTS5 full-text + recency + salience + tag overlap; default, best-available), `match` (strict FTS, may be empty), or `recency` (newest first). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `tags` boosts by overlap. `limit` is clamped to 1..100.
 
 ## Layout
 
@@ -103,7 +103,7 @@ Code the bridge is simply absent and the ledger holds self-report entries only.
 src/
   domain/    entry kinds (TypeBox schemas) + entry/query types
   repo/      LedgerRepository + Ranker seams; sqlite/ implementation
-  service/   LedgerService (validation, defaulting) + SimpleRanker
+  service/   LedgerService (validation, defaulting) + HybridRanker
   mcp/       MCP server + tool definitions
   bin/       ledger.ts  (the `serve` CLI)
 ```

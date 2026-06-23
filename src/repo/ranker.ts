@@ -1,10 +1,10 @@
-import type { LedgerEntry, LedgerQuery } from "../domain/entry.js";
+import type { Candidate, LedgerEntry, LedgerQuery } from "../domain/entry.js";
 
 /**
- * Scoring/ordering seam. The repository scope-filters into a candidate set; the
- * Ranker orders it. v1 ships SimpleRanker (recency); SemanticRanker drops in
- * later without changing this interface.
+ * Scoring/ordering seam. The repository scope-filters into a Candidate set; the
+ * Ranker orders it. HybridRanker handles recency/match/hybrid; SemanticRanker
+ * (Phase 6) drops into the same interface.
  */
 export interface Ranker {
-  rank(q: LedgerQuery, candidates: LedgerEntry[]): LedgerEntry[];
+  rank(q: LedgerQuery, candidates: Candidate[]): LedgerEntry[];
 }
