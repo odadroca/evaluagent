@@ -83,6 +83,21 @@ describe("LedgerService.record", () => {
     );
   });
 
+  it("rejects an out-of-range or non-integer salience", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await expect(s.record({ ...surprise, salience: 100 })).rejects.toBeInstanceOf(
+      LedgerValidationError,
+    );
+    await expect(s.record({ ...surprise, salience: -1 })).rejects.toBeInstanceOf(
+      LedgerValidationError,
+    );
+    await expect(s.record({ ...surprise, salience: 2.5 })).rejects.toBeInstanceOf(
+      LedgerValidationError,
+    );
+    const ok = await s.record({ ...surprise, salience: 2 });
+    expect(ok.salience).toBe(2);
+  });
+
   it("requires a non-empty title and body", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await expect(s.record({ ...surprise, title: "  " })).rejects.toBeInstanceOf(

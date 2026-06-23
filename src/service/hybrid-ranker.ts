@@ -11,6 +11,11 @@ function byIdDesc(a: Candidate, b: Candidate): number {
   return a.entry.id < b.entry.id ? 1 : a.entry.id > b.entry.id ? -1 : 0;
 }
 
+/** Clamp salience to the documented 0..3 range — stored values aren't trusted here. */
+function clampSalience(v: number | undefined): number {
+  return Math.min(3, Math.max(0, v ?? 0));
+}
+
 export class HybridRanker implements Ranker {
   constructor(private readonly now: () => number = () => Date.now()) {}
 
@@ -36,7 +41,12 @@ export class HybridRanker implements Ranker {
     if (mode === "match") {
       return matched
         .map((c) => ({ c, text: textOf(c) }))
-        .sort((a, b) => b.text - a.text || b.c.entry.salience - a.c.entry.salience || byIdDesc(a.c, b.c))
+        .sort(
+          (a, b) =>
+            b.text - a.text ||
+            clampSalience(b.c.entry.salience) - clampSalience(a.c.entry.salience) ||
+            byIdDesc(a.c, b.c),
+        )
         .slice(0, limit)
         .map((x) => x.c.entry);
     }
@@ -48,7 +58,7 @@ export class HybridRanker implements Ranker {
       const text = textOf(c);
       const ageDays = Math.max(0, (nowMs - Date.parse(c.entry.createdAt)) / DAY_MS);
       const recency = Math.exp(-ageDays / HALF_LIFE_DAYS);
-      const salience = (c.entry.salience ?? 0) / 3;
+      const salience = clampSalience(c.entry.salience) / 3;
       const tag =
         qTags.length === 0
           ? 0
