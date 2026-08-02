@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { LedgerService, LedgerValidationError } from "./ledger-service.js";
 import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 
@@ -305,5 +305,34 @@ describe("defaultSessionId stamping", () => {
     const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
     const entry = await service.recordSpine({ kind: "spine_lifecycle", title: "t", body: "b" });
     expect(entry.sessionId).toBe("proc-TEST");
+  });
+});
+
+describe("recall-event logging", () => {
+  it("logs the effective query and returned ids with ranks", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-T" });
+    const a = await service.record({ kind: "friction", title: "hooks restart pain", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    await service.recall({ text: "hooks", limit: 5 });
+
+    const events = await repo.listRecallEvents("p");
+    expect(events).toHaveLength(1);
+    expect(events[0].sessionId).toBe("proc-T");
+    expect(events[0].query).toEqual({ text: "hooks", rank: "hybrid", source: "self_report", limit: 5 });
+    expect(events[0].returned[0]).toEqual({ entry_id: a.id, rank: 1 });
+    expect(events[0].resultCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a failing event insert does not fail the recall", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    await service.record({ kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const boom = vi.spyOn(repo, "insertRecallEvent").mockRejectedValue(new Error("disk full"));
+    const warn = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const entries = await service.recall({});
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    expect(boom).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

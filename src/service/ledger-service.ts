@@ -122,7 +122,28 @@ export class LedgerService {
         ? (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
         : await this.repo.search(query);
 
-    return this.ranker.rank(query, candidates);
+    const ranked = this.ranker.rank(query, candidates);
+
+    try {
+      await this.repo.insertRecallEvent({
+        project,
+        sessionId: this.defaultSessionId ?? null,
+        query: {
+          ...(query.text !== undefined ? { text: query.text } : {}),
+          rank,
+          source,
+          ...(query.kinds && query.kinds.length > 0 ? { kinds: query.kinds } : {}),
+          ...(query.tags && query.tags.length > 0 ? { tags: query.tags } : {}),
+          limit,
+        },
+        returned: ranked.map((e, i) => ({ entry_id: e.id, rank: i + 1 })),
+      });
+    } catch (err) {
+      // Telemetry must never break recall — the lesson store is the product, the log is the meter.
+      process.stderr.write(`recall-event logging failed: ${(err as Error).message}\n`);
+    }
+
+    return ranked;
   }
 
   /**
