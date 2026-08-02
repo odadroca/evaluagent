@@ -216,3 +216,36 @@ describe("SqliteRepository spine support", () => {
     expect(out.map((e) => e.title)).toEqual(["self"]);
   });
 });
+
+describe("recall events", () => {
+  it("inserts and lists recall events newest-first with round-tripped JSON", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const first = await repo.insertRecallEvent({
+      project: "p",
+      sessionId: "proc-A",
+      query: { text: "hooks restart", rank: "hybrid", source: "self_report", limit: 10 },
+      returned: [{ entry_id: "01AAA", rank: 1 }, { entry_id: "01BBB", rank: 2 }],
+    });
+    await repo.insertRecallEvent({
+      project: "p",
+      query: { rank: "recency", source: "self_report", limit: 5 },
+      returned: [],
+    });
+
+    expect(first.id).toBeTruthy();
+    expect(first.resultCount).toBe(2);
+
+    const events = await repo.listRecallEvents("p");
+    expect(events).toHaveLength(2);
+    expect(events[0].query.rank).toBe("recency"); // newest first
+    expect(events[0].sessionId).toBeNull();
+    expect(events[1].returned).toEqual([{ entry_id: "01AAA", rank: 1 }, { entry_id: "01BBB", rank: 2 }]);
+    expect(events[1].query.text).toBe("hooks restart");
+  });
+
+  it("scopes listRecallEvents by project", async () => {
+    const repo = new SqliteRepository(":memory:");
+    await repo.insertRecallEvent({ project: "a", query: { rank: "hybrid", source: "self_report", limit: 10 }, returned: [] });
+    expect(await repo.listRecallEvents("b")).toEqual([]);
+  });
+});

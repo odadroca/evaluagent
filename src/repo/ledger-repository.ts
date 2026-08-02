@@ -1,4 +1,5 @@
 import type { Candidate, LedgerEntry, LedgerQuery, NewEntry } from "../domain/entry.js";
+import type { NewRecallEvent, RecallEvent } from "../domain/recall-event.js";
 
 /** Identifies a specific tool invocation across separate hook processes. */
 export interface SpineMatch {
@@ -22,5 +23,9 @@ export interface LedgerRepository {
   findOpenPre(match: SpineMatch): Promise<LedgerEntry | null>;
   /** The most recent `post` spine entry for a tool invocation (for retry detection). */
   findLatestPost(match: SpineMatch): Promise<LedgerEntry | null>;
+  /** Log one recall invocation (query + returned ids/ranks) for T2/T3 measurement. */
+  insertRecallEvent(e: NewRecallEvent): Promise<RecallEvent>;
+  /** Recall events for a project, newest first. */
+  listRecallEvents(project: string, limit?: number): Promise<RecallEvent[]>;
   close(): Promise<void>;
 }

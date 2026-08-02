@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
 import type { AnyKind, Candidate, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
+import type { NewRecallEvent, RecallEvent } from "../../domain/recall-event.js";
 import type { LedgerRepository, SpineMatch } from "../ledger-repository.js";
 import { clampLimit } from "../../domain/limits.js";
 
@@ -29,6 +30,16 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS idx_entries_project_created ON entries(project, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_project_kind   ON entries(project, kind, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_session        ON entries(session_id, id DESC);
+CREATE TABLE IF NOT EXISTS recall_events (
+  id           TEXT PRIMARY KEY,
+  project      TEXT NOT NULL,
+  session_id   TEXT,
+  created_at   TEXT NOT NULL,
+  query        TEXT NOT NULL DEFAULT '{}',
+  returned     TEXT NOT NULL DEFAULT '[]',
+  result_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_recall_events_project ON recall_events(project, id DESC);
 `;
 
 const FTS_DDL = `
@@ -91,6 +102,28 @@ function toEntry(row: Row): LedgerEntry {
     source: row.source as EntrySource,
     toolName: row.tool_name,
     refEntryId: row.ref_entry_id,
+  };
+}
+
+interface RecallEventRow {
+  id: string;
+  project: string;
+  session_id: string | null;
+  created_at: string;
+  query: string;
+  returned: string;
+  result_count: number;
+}
+
+function toRecallEvent(row: RecallEventRow): RecallEvent {
+  return {
+    id: row.id,
+    project: row.project,
+    sessionId: row.session_id,
+    createdAt: row.created_at,
+    query: JSON.parse(row.query),
+    returned: JSON.parse(row.returned),
+    resultCount: row.result_count,
   };
 }
 
@@ -279,6 +312,32 @@ export class SqliteRepository implements LedgerRepository {
       )
       .get(match.project, match.sessionId, match.tool, match.argsDigest) as Row | undefined;
     return row ? toEntry(row) : null;
+  }
+
+  async insertRecallEvent(e: NewRecallEvent): Promise<RecallEvent> {
+    const row: RecallEventRow = {
+      id: ulid(),
+      project: e.project,
+      session_id: e.sessionId ?? null,
+      created_at: new Date().toISOString(),
+      query: JSON.stringify(e.query),
+      returned: JSON.stringify(e.returned),
+      result_count: e.returned.length,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO recall_events (id, project, session_id, created_at, query, returned, result_count)
+         VALUES (@id, @project, @session_id, @created_at, @query, @returned, @result_count)`,
+      )
+      .run(row);
+    return toRecallEvent(row);
+  }
+
+  async listRecallEvents(project: string, limit = 100): Promise<RecallEvent[]> {
+    const rows = this.db
+      .prepare("SELECT * FROM recall_events WHERE project = ? ORDER BY id DESC LIMIT ?")
+      .all(project, clampLimit(limit, 1000)) as RecallEventRow[];
+    return rows.map(toRecallEvent);
   }
 
   async close(): Promise<void> {
