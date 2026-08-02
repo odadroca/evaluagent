@@ -273,3 +273,37 @@ describe("LedgerService spine pre/post correlation", () => {
     expect(payloadOf(pre2).retry_of).toBe(post1.id);
   });
 });
+
+describe("defaultSessionId stamping", () => {
+  it("stamps record() writes that carry no sessionId", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
+    const entry = await service.record({
+      kind: "friction",
+      title: "t",
+      body: "b",
+      payload: { where: "x", kind: "tooling", intensity: 1 },
+    });
+    expect(entry.sessionId).toBe("proc-TEST");
+  });
+
+  it("does not override an explicit sessionId", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
+    const entry = await service.record({
+      kind: "friction",
+      title: "t",
+      body: "b",
+      payload: { where: "x", kind: "tooling", intensity: 1 },
+      sessionId: "real-session",
+    });
+    expect(entry.sessionId).toBe("real-session");
+  });
+
+  it("stamps recordSpine() writes that carry no sessionId", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
+    const entry = await service.recordSpine({ kind: "spine_lifecycle", title: "t", body: "b" });
+    expect(entry.sessionId).toBe("proc-TEST");
+  });
+});

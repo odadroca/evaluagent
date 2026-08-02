@@ -40,17 +40,21 @@ export interface LedgerServiceOptions {
   repo: LedgerRepository;
   ranker?: Ranker;
   defaultProject?: string;
+  /** Stamped on writes that carry no explicit session id (e.g. a per-process proxy id). */
+  defaultSessionId?: string;
 }
 
 export class LedgerService {
   private readonly repo: LedgerRepository;
   private readonly ranker: Ranker;
   private readonly defaultProject?: string;
+  private readonly defaultSessionId?: string;
 
   constructor(opts: LedgerServiceOptions) {
     this.repo = opts.repo;
     this.ranker = opts.ranker ?? new HybridRanker();
     this.defaultProject = opts.defaultProject;
+    this.defaultSessionId = opts.defaultSessionId;
   }
 
   async record(input: RecordInput): Promise<LedgerEntry> {
@@ -98,7 +102,7 @@ export class LedgerService {
       confidence: input.confidence ?? null,
       salience: input.salience,
       tags: input.tags,
-      sessionId: input.sessionId,
+      sessionId: input.sessionId ?? this.defaultSessionId ?? null,
       occurredAt: input.occurredAt,
     });
   }
@@ -131,13 +135,14 @@ export class LedgerService {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
 
+    const sessionId = write.sessionId ?? this.defaultSessionId ?? null;
     const payload: Record<string, unknown> = { ...(write.payload ?? {}) };
     let refEntryId: string | null = null;
 
     const tool = write.toolName ?? null;
     const argsDigest = typeof payload.args_digest === "string" ? payload.args_digest : null;
     if (write.kind === "spine_tool" && tool && argsDigest) {
-      const match = { project: proj, sessionId: write.sessionId ?? null, tool, argsDigest };
+      const match = { project: proj, sessionId, tool, argsDigest };
       if (payload.phase === "post") {
         const pre = await this.repo.findOpenPre(match);
         if (pre) {
@@ -158,7 +163,7 @@ export class LedgerService {
       payload,
       source: "hook_spine",
       toolName: write.toolName ?? null,
-      sessionId: write.sessionId ?? null,
+      sessionId,
       refEntryId,
     });
   }
