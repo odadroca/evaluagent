@@ -340,6 +340,27 @@ export class SqliteRepository implements LedgerRepository {
     return rows.map(toRecallEvent);
   }
 
+  async countProjects(): Promise<number> {
+    const row = this.db
+      .prepare("SELECT COUNT(DISTINCT project) c FROM entries WHERE source = 'self_report'")
+      .get() as { c: number };
+    return row.c;
+  }
+
+  async findReferrers(ids: string[]): Promise<Record<string, string[]>> {
+    if (ids.length === 0) return {};
+    const rows = this.db
+      .prepare(
+        `SELECT id, ref_entry_id FROM entries
+         WHERE source = 'self_report' AND ref_entry_id IN (${ids.map(() => "?").join(", ")})
+         ORDER BY id`,
+      )
+      .all(...ids) as Array<{ id: string; ref_entry_id: string }>;
+    const map: Record<string, string[]> = {};
+    for (const r of rows) (map[r.ref_entry_id] ??= []).push(r.id);
+    return map;
+  }
+
   async close(): Promise<void> {
     this.db.close();
   }

@@ -115,15 +115,15 @@ describe("LedgerService.recall", () => {
     await s.record({ ...surprise, title: "first" });
     await s.record({ ...surprise, title: "second" });
     const out = await s.recall({});
-    expect(out.map((e) => e.title)).toEqual(["second", "first"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["second", "first"]);
   });
 
   it("clamps the limit (a negative limit never returns the whole ledger)", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     for (let i = 0; i < 3; i++) await s.record({ ...surprise, title: `e${i}` });
-    expect(await s.recall({ limit: 1 })).toHaveLength(1);
+    expect((await s.recall({ limit: 1 })).entries).toHaveLength(1);
     // -1 must not become an unbounded SQLite LIMIT; it falls back to the default.
-    expect(await s.recall({ limit: -1 })).toHaveLength(3);
+    expect((await s.recall({ limit: -1 })).entries).toHaveLength(3);
   });
 
   it("passes kind filters through to the query", async () => {
@@ -136,7 +136,7 @@ describe("LedgerService.recall", () => {
       payload: { approach: "a", reason: "r", signal: "x", recoverable: true },
     });
     const out = await s.recall({ kinds: ["dead_end"] });
-    expect(out.map((e) => e.title)).toEqual(["d"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["d"]);
   });
 });
 
@@ -165,7 +165,7 @@ describe("LedgerService spine + recall scoping", () => {
       payload: { phase: "pre" },
     });
     const out = await s.recall({});
-    expect(out.map((e) => e.title)).toEqual(["lesson"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["lesson"]);
   });
 
   it("recall can include spine entries when source is overridden", async () => {
@@ -177,7 +177,7 @@ describe("LedgerService spine + recall scoping", () => {
       payload: { phase: "pre" },
     });
     const out = await s.recall({ source: "hook_spine" });
-    expect(out.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
   });
 
   it("explicit rank:recency preserves insertion order (newest first)", async () => {
@@ -185,7 +185,7 @@ describe("LedgerService spine + recall scoping", () => {
     await s.record({ ...surprise, title: "older-high-salience", salience: 3 });
     await s.record({ ...surprise, title: "newer-no-salience", salience: 0 });
     const out = await s.recall({ rank: "recency" });
-    expect(out.map((e) => e.title)).toEqual(["newer-no-salience", "older-high-salience"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["newer-no-salience", "older-high-salience"]);
   });
 });
 
@@ -200,20 +200,20 @@ describe("LedgerService.recall (FTS + hybrid)", () => {
     });
     await s.record({ ...surprise, title: "totally unrelated", body: "nothing relevant" });
     const out = await s.recall({ text: "hooks restart mcp" });
-    expect(out[0]!.title).toContain("hooks hot-reload");
+    expect(out.entries[0]!.title).toContain("hooks hot-reload");
   });
 
   it("match mode can be empty", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await s.record({ ...surprise, title: "alpha", body: "beta" });
-    expect(await s.recall({ rank: "match", text: "zzzzz" })).toHaveLength(0);
+    expect((await s.recall({ rank: "match", text: "zzzzz" })).entries).toHaveLength(0);
   });
 
   it("recency mode preserves insertion order (unchanged behavior)", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await s.record({ ...surprise, title: "first" });
     await s.record({ ...surprise, title: "second" });
-    expect((await s.recall({ rank: "recency" })).map((e) => e.title)).toEqual(["second", "first"]);
+    expect((await s.recall({ rank: "recency" })).entries.map((e) => e.title)).toEqual(["second", "first"]);
   });
 });
 
@@ -329,8 +329,8 @@ describe("recall-event logging", () => {
     await service.record({ kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
     const boom = vi.spyOn(repo, "insertRecallEvent").mockRejectedValue(new Error("disk full"));
     const warn = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-    const entries = await service.recall({});
-    expect(entries.length).toBeGreaterThanOrEqual(1);
+    const result = await service.recall({});
+    expect(result.entries.length).toBeGreaterThanOrEqual(1);
     expect(boom).toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
@@ -358,5 +358,20 @@ describe("ref_entry_id on record", () => {
         refEntryId: "01NOPE",
       }),
     ).rejects.toThrow(/ref_entry_id/);
+  });
+});
+
+describe("RecallResult envelope", () => {
+  it("returns entries with scope metadata and referrer links", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const old = await service.record({ kind: "friction", title: "old", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    await service.record({ kind: "friction", title: "new", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 }, refEntryId: old.id });
+
+    const result = await service.recall({});
+    expect(result.scope.project).toBe("p");
+    expect(result.scope.projectsTotal).toBe(1);
+    expect(result.entries.length).toBe(2);
+    expect(result.referrers[old.id]).toHaveLength(1);
   });
 });

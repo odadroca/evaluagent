@@ -249,3 +249,24 @@ describe("recall events", () => {
     expect(await repo.listRecallEvents("b")).toEqual([]);
   });
 });
+
+describe("countProjects and findReferrers", () => {
+  it("counts distinct self_report projects only", async () => {
+    const repo = new SqliteRepository(":memory:");
+    await repo.insertEntry({ kind: "friction", project: "a", title: "t", body: "b", payload: {} });
+    await repo.insertEntry({ kind: "friction", project: "b", title: "t", body: "b", payload: {} });
+    await repo.insertEntry({ kind: "spine_tool", project: "c", title: "t", body: "b", payload: {}, source: "hook_spine" });
+    expect(await repo.countProjects()).toBe(2);
+  });
+
+  it("maps referenced ids to self_report referrers, excluding spine refs", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const old = await repo.insertEntry({ kind: "friction", project: "a", title: "t", body: "b", payload: {} });
+    const fix = await repo.insertEntry({ kind: "friction", project: "a", title: "t2", body: "b", payload: {}, refEntryId: old.id });
+    await repo.insertEntry({ kind: "spine_tool", project: "a", title: "post", body: "b", payload: {}, source: "hook_spine", refEntryId: old.id });
+    const map = await repo.findReferrers([old.id, fix.id]);
+    expect(map[old.id]).toEqual([fix.id]);
+    expect(map[fix.id]).toBeUndefined();
+    expect(await repo.findReferrers([])).toEqual({});
+  });
+});

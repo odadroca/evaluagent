@@ -1,4 +1,4 @@
-import type { EntrySource, LedgerEntry, LedgerQuery, RankMode } from "../domain/entry.js";
+import type { EntrySource, LedgerEntry, LedgerQuery, RankMode, RecallResult } from "../domain/entry.js";
 import type { LedgerRepository } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
@@ -117,7 +117,7 @@ export class LedgerService {
     });
   }
 
-  async recall(input: RecallInput): Promise<LedgerEntry[]> {
+  async recall(input: RecallInput): Promise<RecallResult> {
     const project = input.project ?? this.defaultProject;
     if (!project) {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
@@ -153,7 +153,12 @@ export class LedgerService {
       process.stderr.write(`recall-event logging failed: ${(err as Error).message}\n`);
     }
 
-    return ranked;
+    const [projectsTotal, referrers] = await Promise.all([
+      this.repo.countProjects(),
+      this.repo.findReferrers(ranked.map((e) => e.id)),
+    ]);
+
+    return { entries: ranked, scope: { project, projectsTotal }, referrers };
   }
 
   /**

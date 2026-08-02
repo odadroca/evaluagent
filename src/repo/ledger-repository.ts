@@ -27,5 +27,9 @@ export interface LedgerRepository {
   insertRecallEvent(e: NewRecallEvent): Promise<RecallEvent>;
   /** Recall events for a project, newest first. */
   listRecallEvents(project: string, limit?: number): Promise<RecallEvent[]>;
+  /** Distinct projects among self_report entries (scope-visibility metadata). */
+  countProjects(): Promise<number>;
+  /** Map of entry id → ids of self_report entries whose ref_entry_id points at it. */
+  findReferrers(ids: string[]): Promise<Record<string, string[]>>;
   close(): Promise<void>;
 }

@@ -40,7 +40,8 @@ export const TOOLS: Tool[] = [
   {
     name: "recall_reasoning",
     description:
-      "Recall the most relevant past reasoning entries for the current work. Defaults to hybrid ranking (blends text match, recency, salience, and tags). Use at the start of a task to learn from earlier instances.",
+      "Recall the most relevant past reasoning entries for the current work. Defaults to hybrid ranking (blends text match, recency, salience, and tags). Use at the start of a task to learn from earlier instances. " +
+      "Responses include the effective project scope (`scope.projects_total` shows how many projects exist beyond it) and per-entry `superseded_by` links — treat a superseded entry as potentially stale and read its successor.",
     inputSchema: {
       type: "object",
       properties: {
