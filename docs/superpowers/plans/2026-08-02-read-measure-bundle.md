@@ -537,7 +537,9 @@ git add src/service/ledger-service.ts src/mcp/server.ts src/mcp/tools.ts src/ser
 git commit -m "feat(links): accept + validate ref_entry_id on record_reasoning"
 ```
 
----### Task 5: `RecallResult` envelope — scope visibility + `superseded_by`
+---
+
+### Task 5: `RecallResult` envelope — scope visibility + `superseded_by`
 
 The June scoping incident (default project hid ~94% of the corpus) and the prose-only supersede links both fix at the read surface: recall returns an envelope with effective scope, total-project count, and per-entry referrer links.
 
