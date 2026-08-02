@@ -67,6 +67,12 @@ const COLUMN_MIGRATIONS: Array<{ name: string; ddl: string }> = [
   { name: "ref_entry_id", ddl: "ALTER TABLE entries ADD COLUMN ref_entry_id TEXT" },
 ];
 
+// Indexes on migrated columns: must run after migrateColumns() has ensured the
+// column exists, since a pre-existing DB won't have it when the base DDL runs.
+const REF_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_entries_ref ON entries(ref_entry_id) WHERE ref_entry_id IS NOT NULL;
+`;
+
 interface Row {
   id: string;
   project: string;
@@ -148,6 +154,7 @@ export class SqliteRepository implements LedgerRepository {
     this.db.pragma("journal_mode = WAL");
     this.db.exec(DDL);
     this.migrateColumns();
+    this.db.exec(REF_INDEX_DDL);
     this.migrateFts();
   }
 
@@ -291,7 +298,7 @@ export class SqliteRepository implements LedgerRepository {
            AND p.tool_name = ?
            AND json_extract(p.payload, '$.phase') = 'pre'
            AND json_extract(p.payload, '$.args_digest') = ?
-           AND NOT EXISTS (SELECT 1 FROM entries q WHERE q.ref_entry_id = p.id)
+           AND NOT EXISTS (SELECT 1 FROM entries q WHERE q.ref_entry_id = p.id AND q.source = 'hook_spine')
          ORDER BY p.id DESC LIMIT 1`,
       )
       .get(match.project, match.sessionId, match.tool, match.argsDigest) as Row | undefined;

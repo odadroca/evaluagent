@@ -250,6 +250,49 @@ describe("recall events", () => {
   });
 });
 
+describe("SqliteRepository.findOpenPre", () => {
+  it("only a spine post closes an open pre — a self-report ref must not close it", async () => {
+    const r = makeRepo();
+    const pre = await r.insertEntry({
+      kind: "spine_tool",
+      project: "evaluagent",
+      title: "PreToolUse: Edit",
+      body: "about to run Edit",
+      payload: { phase: "pre", args_digest: "d" },
+      source: "hook_spine",
+      toolName: "Edit",
+    });
+
+    const match = { project: "evaluagent", sessionId: null, tool: "Edit", argsDigest: "d" };
+    expect((await r.findOpenPre(match))?.id).toBe(pre.id);
+
+    // A self_report entry referencing the pre must NOT count as closing it.
+    await r.insertEntry({
+      kind: "friction",
+      project: "evaluagent",
+      title: "unrelated self report",
+      body: "b",
+      payload: { where: "x", kind: "tooling", intensity: 1 },
+      source: "self_report",
+      refEntryId: pre.id,
+    });
+    expect((await r.findOpenPre(match))?.id).toBe(pre.id);
+
+    // A spine post referencing the pre DOES close it.
+    await r.insertEntry({
+      kind: "spine_tool",
+      project: "evaluagent",
+      title: "PostToolUse: Edit",
+      body: "finished Edit",
+      payload: { phase: "post", args_digest: "d" },
+      source: "hook_spine",
+      toolName: "Edit",
+      refEntryId: pre.id,
+    });
+    expect(await r.findOpenPre(match)).toBeNull();
+  });
+});
+
 describe("countProjects and findReferrers", () => {
   it("counts distinct self_report projects only", async () => {
     const repo = new SqliteRepository(":memory:");

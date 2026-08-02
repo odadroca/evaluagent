@@ -90,6 +90,10 @@ export class LedgerService {
       throw new LedgerValidationError("salience must be an integer in [0,3]");
     }
 
+    if (input.refEntryId != null && typeof input.refEntryId !== "string") {
+      throw new LedgerValidationError("ref_entry_id must be a string");
+    }
+
     if (input.refEntryId != null) {
       const ref = await this.repo.getEntry(input.refEntryId);
       if (!ref) {
@@ -129,11 +133,11 @@ export class LedgerService {
 
     const candidates =
       rank === "recency"
-        ? query.text
+        ? query.text?.trim()
           ? // Tokenized FTS (same interpretation as match/hybrid) — the whole-phrase LIKE
             // in query() silently false-empties on multi-word text.
             await this.repo.search({ ...query, rank: "match" })
-          : (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
+          : (await this.repo.query({ ...query, text: undefined })).map((entry) => ({ entry, textScore: null }))
         : await this.repo.search(query);
 
     const ranked = this.ranker.rank(query, candidates);

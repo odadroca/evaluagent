@@ -359,6 +359,17 @@ describe("ref_entry_id on record", () => {
       }),
     ).rejects.toThrow(/ref_entry_id/);
   });
+
+  it("rejects a non-string ref_entry_id before it reaches the repo", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    await expect(
+      service.record({
+        kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 },
+        refEntryId: 42 as never,
+      }),
+    ).rejects.toThrow(/ref_entry_id must be a string/);
+  });
 });
 
 describe("RecallResult envelope", () => {
@@ -394,6 +405,15 @@ describe("recency + text", () => {
     const a = await service.record({ kind: "friction", title: "one", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
     const b = await service.record({ kind: "friction", title: "two", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
     const result = await service.recall({ rank: "recency" });
+    expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]);
+  });
+
+  it("whitespace-only text under rank=recency must not false-empty", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const a = await service.record({ kind: "friction", title: "one", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const b = await service.record({ kind: "friction", title: "two", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const result = await service.recall({ rank: "recency", text: "   " });
     expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]);
   });
 });
