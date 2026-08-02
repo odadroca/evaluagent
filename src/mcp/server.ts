@@ -35,6 +35,7 @@ async function recordReasoning(
     tags: args.tags as string[] | undefined,
     sessionId: args.session_id as string | undefined,
     occurredAt: args.occurred_at as string | undefined,
+    refEntryId: args.ref_entry_id as string | undefined,
   });
   return ok({
     entry_id: entry.id,

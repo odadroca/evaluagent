@@ -336,3 +336,27 @@ describe("recall-event logging", () => {
     warn.mockRestore();
   });
 });
+
+describe("ref_entry_id on record", () => {
+  it("stores a valid reference to an earlier entry", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const prior = await service.record({ kind: "friction", title: "t1", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const next = await service.record({
+      kind: "friction", title: "t2", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 },
+      refEntryId: prior.id,
+    });
+    expect(next.refEntryId).toBe(prior.id);
+  });
+
+  it("rejects a reference to a non-existent entry", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    await expect(
+      service.record({
+        kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 },
+        refEntryId: "01NOPE",
+      }),
+    ).rejects.toThrow(/ref_entry_id/);
+  });
+});

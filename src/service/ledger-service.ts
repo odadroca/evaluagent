@@ -27,6 +27,8 @@ export interface RecordInput {
   tags?: string[];
   sessionId?: string | null;
   occurredAt?: string | null;
+  /** Earlier entry this one supersedes/corrects/refines. Must exist. */
+  refEntryId?: string | null;
 }
 
 /**
@@ -88,6 +90,13 @@ export class LedgerService {
       throw new LedgerValidationError("salience must be an integer in [0,3]");
     }
 
+    if (input.refEntryId != null) {
+      const ref = await this.repo.getEntry(input.refEntryId);
+      if (!ref) {
+        throw new LedgerValidationError(`ref_entry_id does not match any stored entry: ${input.refEntryId}`);
+      }
+    }
+
     const project = input.project ?? this.defaultProject;
     if (!project) {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
@@ -104,6 +113,7 @@ export class LedgerService {
       tags: input.tags,
       sessionId: input.sessionId ?? this.defaultSessionId ?? null,
       occurredAt: input.occurredAt,
+      refEntryId: input.refEntryId ?? null,
     });
   }
 

@@ -27,6 +27,11 @@ export const TOOLS: Tool[] = [
         tags: { type: "array", items: { type: "string" } },
         session_id: { type: "string" },
         occurred_at: { type: "string" },
+        ref_entry_id: {
+          type: "string",
+          description:
+            "entry_id of an earlier entry this one SUPERSEDES, corrects, or refines. Set it whenever a conclusion overturns a stored one — recall surfaces the link so stale entries are visibly outdated.",
+        },
       },
       required: ["kind", "title", "body", "payload"],
       additionalProperties: false,
