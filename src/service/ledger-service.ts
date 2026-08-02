@@ -129,7 +129,11 @@ export class LedgerService {
 
     const candidates =
       rank === "recency"
-        ? (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
+        ? query.text
+          ? // Tokenized FTS (same interpretation as match/hybrid) — the whole-phrase LIKE
+            // in query() silently false-empties on multi-word text.
+            await this.repo.search({ ...query, rank: "match" })
+          : (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
         : await this.repo.search(query);
 
     const ranked = this.ranker.rank(query, candidates);

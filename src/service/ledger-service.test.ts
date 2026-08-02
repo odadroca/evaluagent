@@ -375,3 +375,25 @@ describe("RecallResult envelope", () => {
     expect(result.referrers[old.id]).toHaveLength(1);
   });
 });
+
+describe("recency + text", () => {
+  it("multi-word text under rank=recency returns tokenized matches newest-first", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const a = await service.record({ kind: "friction", title: "hooks hot-reload works", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const b = await service.record({ kind: "friction", title: "mcp needs restart", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    await service.record({ kind: "friction", title: "unrelated", body: "nothing here", payload: { where: "x", kind: "tooling", intensity: 1 } });
+
+    const result = await service.recall({ rank: "recency", text: "hooks restart mcp" });
+    expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]); // both match, newest first
+  });
+
+  it("recency without text still returns everything newest-first", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const a = await service.record({ kind: "friction", title: "one", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const b = await service.record({ kind: "friction", title: "two", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const result = await service.recall({ rank: "recency" });
+    expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]);
+  });
+});

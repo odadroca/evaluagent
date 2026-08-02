@@ -58,7 +58,7 @@ export const TOOLS: Tool[] = [
           type: "string",
           enum: ["recency", "match", "hybrid"],
           description:
-            "recency = newest first; match = strict FTS matches only (can be empty); hybrid = best-available, blends text + recency + salience + tags (default).",
+            "recency = newest first (text, if given, filters via the same tokenized FTS match); match = strict FTS matches only (can be empty); hybrid = best-available, blends text + recency + salience + tags (default).",
         },
         tags: { type: "array", items: { type: "string" }, description: "Filter/boost by tag overlap." },
         limit: { type: "integer", minimum: 1, maximum: 100 },
