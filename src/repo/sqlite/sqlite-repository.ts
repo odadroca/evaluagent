@@ -258,6 +258,10 @@ export class SqliteRepository implements LedgerRepository {
     }
     const scopeSql = scope.join(" AND ");
 
+    // The pool cap must not evict what the rank mode cares about most: recency keeps the
+    // newest matches (bm25-ordering here would silently drop a new-but-weak match once
+    // matches exceed SEARCH_POOL); match/hybrid keep the strongest.
+    const orderSql = q.rank === "recency" ? "e.id DESC" : "bm25";
     const matchExpr = buildMatchExpr(q.text);
     const ftsRows = matchExpr
       ? (this.db
@@ -265,14 +269,15 @@ export class SqliteRepository implements LedgerRepository {
             `SELECT e.*, bm25(entries_fts) AS bm25
              FROM entries_fts JOIN entries e ON e.rowid = entries_fts.rowid
              WHERE entries_fts MATCH ? AND ${scopeSql}
-             ORDER BY bm25 LIMIT ?`,
+             ORDER BY ${orderSql} LIMIT ?`,
           )
           .all(matchExpr, ...scopeParams, SEARCH_POOL) as Array<Row & { bm25: number }>)
       : [];
 
     const candidates: Candidate[] = ftsRows.map((r) => ({ entry: toEntry(r), textScore: r.bm25 }));
 
-    if ((q.rank ?? "hybrid") === "match") return candidates;
+    // match and recency want matches only; the recent-pool padding below is hybrid's.
+    if ((q.rank ?? "hybrid") !== "hybrid") return candidates;
 
     // hybrid: pad with the recent pool (so recall is never a false-empty)
     const seen = new Set(ftsRows.map((r) => r.id));

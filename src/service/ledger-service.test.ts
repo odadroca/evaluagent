@@ -215,6 +215,20 @@ describe("LedgerService.recall (FTS + hybrid)", () => {
     await s.record({ ...surprise, title: "second" });
     expect((await s.recall({ rank: "recency" })).entries.map((e) => e.title)).toEqual(["second", "first"]);
   });
+
+  it("recency+text keeps the newest match even when more than SEARCH_POOL entries match", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    // 200 older entries with strong bm25 for "alpha" (high term frequency, short docs)…
+    for (let i = 0; i < 200; i++) {
+      await s.record({ ...surprise, title: "alpha alpha alpha alpha alpha", body: "alpha alpha" });
+    }
+    // …then one newest entry that matches weakly (single occurrence, long body).
+    const filler = "unrelated words padding the document so its bm25 score ranks last ".repeat(5);
+    const newest = await s.record({ ...surprise, title: "one alpha only", body: filler });
+
+    const out = await s.recall({ rank: "recency", text: "alpha", limit: 1 });
+    expect(out.entries[0]!.id).toBe(newest.id);
+  });
 });
 
 describe("LedgerService spine pre/post correlation", () => {

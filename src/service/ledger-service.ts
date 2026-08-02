@@ -135,8 +135,9 @@ export class LedgerService {
       rank === "recency"
         ? query.text?.trim()
           ? // Tokenized FTS (same interpretation as match/hybrid) — the whole-phrase LIKE
-            // in query() silently false-empties on multi-word text.
-            await this.repo.search({ ...query, rank: "match" })
+            // in query() silently false-empties on multi-word text. The repo orders the
+            // pool newest-first for rank=recency so the cap can't evict recent matches.
+            await this.repo.search(query)
           : (await this.repo.query({ ...query, text: undefined })).map((entry) => ({ entry, textScore: null }))
         : await this.repo.search(query);
 
