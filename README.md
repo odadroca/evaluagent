@@ -7,11 +7,19 @@ analyze patterns over time **and a future agent instance can recall the relevant
 Design background lives in [`docs/REASONING-LEDGER-PLAN.md`](./docs/REASONING-LEDGER-PLAN.md)
 and [`docs/REASONING-LEDGER-ARCHITECTURE.md`](./docs/REASONING-LEDGER-ARCHITECTURE.md).
 
-## Status — Phases 1–2
+## Status — Phases 1–2 + read/measure bundle
 
 A working slice, end-to-end:
 
 - **Record / recall over MCP**, backed by **SQLite**, hybrid-ranked (FTS5 full-text + recency + salience + tag overlap).
+- **Recall-event logging**: every `recall_reasoning` call writes its effective query and the
+  returned entry ids/ranks to a `recall_events` table (separate from `entries`, non-fatal on
+  failure) — the join key for measuring whether recall changes later behavior.
+- **Process session stamping**: writes without an explicit `session_id` get a per-server-process
+  `proc-<ulid>` proxy id, so entries from one session can be grouped even when the caller never
+  passes one.
+- **Supersede links**: `record_reasoning` accepts `ref_entry_id` (validated to exist) pointing at
+  the entry a new conclusion supersedes/corrects; recall marks the old entry `superseded_by`.
 - TypeBox + Ajv validation of the six introspective entry kinds.
 - **Claude Code hook bridge**: a `evaluagent-hook` binary turns hook events into an automatic
   behavioral spine (tool calls + lifecycle), stored alongside self-report entries. Tool args
@@ -93,9 +101,10 @@ Code the bridge is simply absent and the ledger holds self-report entries only.
 
 ## Tools
 
-- **`record_reasoning`** `{ kind, title, body, payload, project?, confidence?, salience?, tags?, session_id?, occurred_at? }`
-  — store one introspective entry. `kind` ∈ `surprise | dead_end | confidence | abandoned_branch | reconstruction | friction`; `payload` is validated per kind.
-- **`recall_reasoning`** `{ project?, kinds?, text?, source?, rank?, tags?, limit? }` — relevant entries ranked by hybrid (FTS5 full-text + recency + salience + tag overlap; default, best-available), `match` (strict FTS, may be empty), or `recency` (newest first). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `tags` boosts by overlap. `limit` is clamped to 1..100.
+- **`record_reasoning`** `{ kind, title, body, payload, project?, confidence?, salience?, tags?, session_id?, occurred_at?, ref_entry_id? }`
+  — store one introspective entry. `kind` ∈ `surprise | dead_end | confidence | abandoned_branch | reconstruction | friction`; `payload` is validated per kind. Set `ref_entry_id` when the entry supersedes/corrects an earlier one (must reference an existing entry).
+- **`recall_reasoning`** `{ project?, kinds?, text?, source?, rank?, tags?, limit? }` — relevant entries ranked by hybrid (FTS5 full-text + recency + salience + tag overlap; default, best-available), `match` (strict FTS, may be empty), or `recency` (newest first; `text`, if given, filters via the same tokenized FTS match, and the candidate pool keeps the newest matches). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `tags` boosts by overlap. `limit` is clamped to 1..100.
+  The response carries `scope: { project, projects_total }` (the effective project filter vs how many projects exist in the store) and, per entry, `project` and `superseded_by` (ids of later entries that reference it — treat a superseded entry as potentially stale). Every call is logged to `recall_events`.
 
 ## Layout
 
