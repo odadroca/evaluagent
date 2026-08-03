@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { LedgerService, LedgerValidationError } from "./ledger-service.js";
 import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 
@@ -115,15 +115,15 @@ describe("LedgerService.recall", () => {
     await s.record({ ...surprise, title: "first" });
     await s.record({ ...surprise, title: "second" });
     const out = await s.recall({});
-    expect(out.map((e) => e.title)).toEqual(["second", "first"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["second", "first"]);
   });
 
   it("clamps the limit (a negative limit never returns the whole ledger)", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     for (let i = 0; i < 3; i++) await s.record({ ...surprise, title: `e${i}` });
-    expect(await s.recall({ limit: 1 })).toHaveLength(1);
+    expect((await s.recall({ limit: 1 })).entries).toHaveLength(1);
     // -1 must not become an unbounded SQLite LIMIT; it falls back to the default.
-    expect(await s.recall({ limit: -1 })).toHaveLength(3);
+    expect((await s.recall({ limit: -1 })).entries).toHaveLength(3);
   });
 
   it("passes kind filters through to the query", async () => {
@@ -136,7 +136,7 @@ describe("LedgerService.recall", () => {
       payload: { approach: "a", reason: "r", signal: "x", recoverable: true },
     });
     const out = await s.recall({ kinds: ["dead_end"] });
-    expect(out.map((e) => e.title)).toEqual(["d"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["d"]);
   });
 });
 
@@ -165,7 +165,7 @@ describe("LedgerService spine + recall scoping", () => {
       payload: { phase: "pre" },
     });
     const out = await s.recall({});
-    expect(out.map((e) => e.title)).toEqual(["lesson"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["lesson"]);
   });
 
   it("recall can include spine entries when source is overridden", async () => {
@@ -177,7 +177,7 @@ describe("LedgerService spine + recall scoping", () => {
       payload: { phase: "pre" },
     });
     const out = await s.recall({ source: "hook_spine" });
-    expect(out.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["PreToolUse: Edit"]);
   });
 
   it("explicit rank:recency preserves insertion order (newest first)", async () => {
@@ -185,7 +185,7 @@ describe("LedgerService spine + recall scoping", () => {
     await s.record({ ...surprise, title: "older-high-salience", salience: 3 });
     await s.record({ ...surprise, title: "newer-no-salience", salience: 0 });
     const out = await s.recall({ rank: "recency" });
-    expect(out.map((e) => e.title)).toEqual(["newer-no-salience", "older-high-salience"]);
+    expect(out.entries.map((e) => e.title)).toEqual(["newer-no-salience", "older-high-salience"]);
   });
 });
 
@@ -200,20 +200,34 @@ describe("LedgerService.recall (FTS + hybrid)", () => {
     });
     await s.record({ ...surprise, title: "totally unrelated", body: "nothing relevant" });
     const out = await s.recall({ text: "hooks restart mcp" });
-    expect(out[0]!.title).toContain("hooks hot-reload");
+    expect(out.entries[0]!.title).toContain("hooks hot-reload");
   });
 
   it("match mode can be empty", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await s.record({ ...surprise, title: "alpha", body: "beta" });
-    expect(await s.recall({ rank: "match", text: "zzzzz" })).toHaveLength(0);
+    expect((await s.recall({ rank: "match", text: "zzzzz" })).entries).toHaveLength(0);
   });
 
   it("recency mode preserves insertion order (unchanged behavior)", async () => {
     const s = svc({ defaultProject: "evaluagent" });
     await s.record({ ...surprise, title: "first" });
     await s.record({ ...surprise, title: "second" });
-    expect((await s.recall({ rank: "recency" })).map((e) => e.title)).toEqual(["second", "first"]);
+    expect((await s.recall({ rank: "recency" })).entries.map((e) => e.title)).toEqual(["second", "first"]);
+  });
+
+  it("recency+text keeps the newest match even when more than SEARCH_POOL entries match", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    // 200 older entries with strong bm25 for "alpha" (high term frequency, short docs)…
+    for (let i = 0; i < 200; i++) {
+      await s.record({ ...surprise, title: "alpha alpha alpha alpha alpha", body: "alpha alpha" });
+    }
+    // …then one newest entry that matches weakly (single occurrence, long body).
+    const filler = "unrelated words padding the document so its bm25 score ranks last ".repeat(5);
+    const newest = await s.record({ ...surprise, title: "one alpha only", body: filler });
+
+    const out = await s.recall({ rank: "recency", text: "alpha", limit: 1 });
+    expect(out.entries[0]!.id).toBe(newest.id);
   });
 });
 
@@ -271,5 +285,149 @@ describe("LedgerService spine pre/post correlation", () => {
     const post1 = await s.recordSpine(post);
     const pre2 = await s.recordSpine(pre);
     expect(payloadOf(pre2).retry_of).toBe(post1.id);
+  });
+});
+
+describe("defaultSessionId stamping", () => {
+  it("stamps record() writes that carry no sessionId", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
+    const entry = await service.record({
+      kind: "friction",
+      title: "t",
+      body: "b",
+      payload: { where: "x", kind: "tooling", intensity: 1 },
+    });
+    expect(entry.sessionId).toBe("proc-TEST");
+  });
+
+  it("does not override an explicit sessionId", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
+    const entry = await service.record({
+      kind: "friction",
+      title: "t",
+      body: "b",
+      payload: { where: "x", kind: "tooling", intensity: 1 },
+      sessionId: "real-session",
+    });
+    expect(entry.sessionId).toBe("real-session");
+  });
+
+  it("stamps recordSpine() writes that carry no sessionId", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-TEST" });
+    const entry = await service.recordSpine({ kind: "spine_lifecycle", title: "t", body: "b" });
+    expect(entry.sessionId).toBe("proc-TEST");
+  });
+});
+
+describe("recall-event logging", () => {
+  it("logs the effective query and returned ids with ranks", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p", defaultSessionId: "proc-T" });
+    const a = await service.record({ kind: "friction", title: "hooks restart pain", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    await service.recall({ text: "hooks", limit: 5 });
+
+    const events = await repo.listRecallEvents("p");
+    expect(events).toHaveLength(1);
+    expect(events[0].sessionId).toBe("proc-T");
+    expect(events[0].query).toEqual({ text: "hooks", rank: "hybrid", source: "self_report", limit: 5 });
+    expect(events[0].returned[0]).toEqual({ entry_id: a.id, rank: 1 });
+    expect(events[0].resultCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a failing event insert does not fail the recall", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    await service.record({ kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const boom = vi.spyOn(repo, "insertRecallEvent").mockRejectedValue(new Error("disk full"));
+    const warn = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const result = await service.recall({});
+    expect(result.entries.length).toBeGreaterThanOrEqual(1);
+    expect(boom).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("ref_entry_id on record", () => {
+  it("stores a valid reference to an earlier entry", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const prior = await service.record({ kind: "friction", title: "t1", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const next = await service.record({
+      kind: "friction", title: "t2", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 },
+      refEntryId: prior.id,
+    });
+    expect(next.refEntryId).toBe(prior.id);
+  });
+
+  it("rejects a reference to a non-existent entry", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    await expect(
+      service.record({
+        kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 },
+        refEntryId: "01NOPE",
+      }),
+    ).rejects.toThrow(/ref_entry_id/);
+  });
+
+  it("rejects a non-string ref_entry_id before it reaches the repo", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    await expect(
+      service.record({
+        kind: "friction", title: "t", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 },
+        refEntryId: 42 as never,
+      }),
+    ).rejects.toThrow(/ref_entry_id must be a string/);
+  });
+});
+
+describe("RecallResult envelope", () => {
+  it("returns entries with scope metadata and referrer links", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const old = await service.record({ kind: "friction", title: "old", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    await service.record({ kind: "friction", title: "new", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 }, refEntryId: old.id });
+
+    const result = await service.recall({});
+    expect(result.scope.project).toBe("p");
+    expect(result.scope.projectsTotal).toBe(1);
+    expect(result.entries.length).toBe(2);
+    expect(result.referrers[old.id]).toHaveLength(1);
+  });
+});
+
+describe("recency + text", () => {
+  it("multi-word text under rank=recency returns tokenized matches newest-first", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const a = await service.record({ kind: "friction", title: "hooks hot-reload works", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const b = await service.record({ kind: "friction", title: "mcp needs restart", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    await service.record({ kind: "friction", title: "unrelated", body: "nothing here", payload: { where: "x", kind: "tooling", intensity: 1 } });
+
+    const result = await service.recall({ rank: "recency", text: "hooks restart mcp" });
+    expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]); // both match, newest first
+  });
+
+  it("recency without text still returns everything newest-first", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const a = await service.record({ kind: "friction", title: "one", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const b = await service.record({ kind: "friction", title: "two", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const result = await service.recall({ rank: "recency" });
+    expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]);
+  });
+
+  it("whitespace-only text under rank=recency must not false-empty", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "p" });
+    const a = await service.record({ kind: "friction", title: "one", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const b = await service.record({ kind: "friction", title: "two", body: "b", payload: { where: "x", kind: "tooling", intensity: 1 } });
+    const result = await service.recall({ rank: "recency", text: "   " });
+    expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]);
   });
 });

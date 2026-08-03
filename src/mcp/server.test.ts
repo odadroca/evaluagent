@@ -135,4 +135,42 @@ describe("MCP ledger server", () => {
     expect(shown.entries).toHaveLength(1);
     expect(shown.entries[0].kind).toBe("spine_tool");
   });
+
+  it("recall response carries scope and superseded_by", async () => {
+    const client = await connectedClient();
+
+    const rec = await client.callTool({
+      name: "record_reasoning",
+      arguments: {
+        kind: "surprise",
+        title: "old conclusion",
+        body: "turned out to be wrong",
+        payload: { expected: "a", actual: "b", magnitude: 1 },
+      },
+    });
+    const old = JSON.parse(textOf(rec));
+
+    await client.callTool({
+      name: "record_reasoning",
+      arguments: {
+        kind: "surprise",
+        title: "corrected conclusion",
+        body: "supersedes the earlier one",
+        payload: { expected: "a", actual: "c", magnitude: 1 },
+        ref_entry_id: old.entry_id,
+      },
+    });
+
+    const recall = await client.callTool({ name: "recall_reasoning", arguments: {} });
+    expect(recall.isError).toBeFalsy();
+    const recalled = JSON.parse(textOf(recall));
+
+    expect(recalled.scope.project).toBe("evaluagent");
+    expect(recalled.scope.projects_total).toBe(1);
+
+    const oldEntry = recalled.entries.find((e: { entry_id: string }) => e.entry_id === old.entry_id);
+    const newEntry = recalled.entries.find((e: { entry_id: string }) => e.entry_id !== old.entry_id);
+    expect(oldEntry.superseded_by).toEqual([newEntry.entry_id]);
+    expect(newEntry.superseded_by).toEqual([]);
+  });
 });

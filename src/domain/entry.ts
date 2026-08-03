@@ -69,3 +69,12 @@ export interface Candidate {
   entry: LedgerEntry;
   textScore: number | null;
 }
+
+/** Recall response envelope: entries + scope metadata + supersede links. */
+export interface RecallResult {
+  entries: LedgerEntry[];
+  /** Effective project filter and how many projects exist in the whole store. */
+  scope: { project: string; projectsTotal: number };
+  /** entry id → ids of later self_report entries that reference (supersede/correct) it. */
+  referrers: Record<string, string[]>;
+}

@@ -35,6 +35,7 @@ async function recordReasoning(
     tags: args.tags as string[] | undefined,
     sessionId: args.session_id as string | undefined,
     occurredAt: args.occurred_at as string | undefined,
+    refEntryId: args.ref_entry_id as string | undefined,
   });
   return ok({
     entry_id: entry.id,
@@ -48,7 +49,7 @@ async function recallReasoning(
   service: LedgerService,
   args: Record<string, unknown>,
 ): Promise<CallToolResult> {
-  const entries = await service.recall({
+  const result = await service.recall({
     project: args.project as string | undefined,
     kinds: args.kinds as EntryKind[] | undefined,
     text: args.text as string | undefined,
@@ -58,10 +59,12 @@ async function recallReasoning(
     limit: args.limit as number | undefined,
   });
   return ok({
-    count: entries.length,
-    entries: entries.map((e) => ({
+    count: result.entries.length,
+    scope: { project: result.scope.project, projects_total: result.scope.projectsTotal },
+    entries: result.entries.map((e) => ({
       entry_id: e.id,
       kind: e.kind,
+      project: e.project,
       title: e.title,
       body: e.body,
       tags: e.tags,
@@ -69,6 +72,7 @@ async function recallReasoning(
       salience: e.salience,
       created_at: e.createdAt,
       payload: e.payload,
+      superseded_by: result.referrers[e.id] ?? [],
     })),
   });
 }

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
 import type { AnyKind, Candidate, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
+import type { NewRecallEvent, RecallEvent } from "../../domain/recall-event.js";
 import type { LedgerRepository, SpineMatch } from "../ledger-repository.js";
 import { clampLimit } from "../../domain/limits.js";
 
@@ -29,6 +30,16 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS idx_entries_project_created ON entries(project, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_project_kind   ON entries(project, kind, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_session        ON entries(session_id, id DESC);
+CREATE TABLE IF NOT EXISTS recall_events (
+  id           TEXT PRIMARY KEY,
+  project      TEXT NOT NULL,
+  session_id   TEXT,
+  created_at   TEXT NOT NULL,
+  query        TEXT NOT NULL DEFAULT '{}',
+  returned     TEXT NOT NULL DEFAULT '[]',
+  result_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_recall_events_project ON recall_events(project, id DESC);
 `;
 
 const FTS_DDL = `
@@ -55,6 +66,12 @@ const COLUMN_MIGRATIONS: Array<{ name: string; ddl: string }> = [
   { name: "tool_name", ddl: "ALTER TABLE entries ADD COLUMN tool_name TEXT" },
   { name: "ref_entry_id", ddl: "ALTER TABLE entries ADD COLUMN ref_entry_id TEXT" },
 ];
+
+// Indexes on migrated columns: must run after migrateColumns() has ensured the
+// column exists, since a pre-existing DB won't have it when the base DDL runs.
+const REF_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_entries_ref ON entries(ref_entry_id) WHERE ref_entry_id IS NOT NULL;
+`;
 
 interface Row {
   id: string;
@@ -94,6 +111,28 @@ function toEntry(row: Row): LedgerEntry {
   };
 }
 
+interface RecallEventRow {
+  id: string;
+  project: string;
+  session_id: string | null;
+  created_at: string;
+  query: string;
+  returned: string;
+  result_count: number;
+}
+
+function toRecallEvent(row: RecallEventRow): RecallEvent {
+  return {
+    id: row.id,
+    project: row.project,
+    sessionId: row.session_id,
+    createdAt: row.created_at,
+    query: JSON.parse(row.query),
+    returned: JSON.parse(row.returned),
+    resultCount: row.result_count,
+  };
+}
+
 /** Build a forgiving FTS5 MATCH expression: quote each term, OR them. Null if no text. */
 function buildMatchExpr(text: string | undefined): string | null {
   if (!text) return null;
@@ -115,6 +154,7 @@ export class SqliteRepository implements LedgerRepository {
     this.db.pragma("journal_mode = WAL");
     this.db.exec(DDL);
     this.migrateColumns();
+    this.db.exec(REF_INDEX_DDL);
     this.migrateFts();
   }
 
@@ -218,6 +258,10 @@ export class SqliteRepository implements LedgerRepository {
     }
     const scopeSql = scope.join(" AND ");
 
+    // The pool cap must not evict what the rank mode cares about most: recency keeps the
+    // newest matches (bm25-ordering here would silently drop a new-but-weak match once
+    // matches exceed SEARCH_POOL); match/hybrid keep the strongest.
+    const orderSql = q.rank === "recency" ? "e.id DESC" : "bm25";
     const matchExpr = buildMatchExpr(q.text);
     const ftsRows = matchExpr
       ? (this.db
@@ -225,14 +269,15 @@ export class SqliteRepository implements LedgerRepository {
             `SELECT e.*, bm25(entries_fts) AS bm25
              FROM entries_fts JOIN entries e ON e.rowid = entries_fts.rowid
              WHERE entries_fts MATCH ? AND ${scopeSql}
-             ORDER BY bm25 LIMIT ?`,
+             ORDER BY ${orderSql} LIMIT ?`,
           )
           .all(matchExpr, ...scopeParams, SEARCH_POOL) as Array<Row & { bm25: number }>)
       : [];
 
     const candidates: Candidate[] = ftsRows.map((r) => ({ entry: toEntry(r), textScore: r.bm25 }));
 
-    if ((q.rank ?? "hybrid") === "match") return candidates;
+    // match and recency want matches only; the recent-pool padding below is hybrid's.
+    if ((q.rank ?? "hybrid") !== "hybrid") return candidates;
 
     // hybrid: pad with the recent pool (so recall is never a false-empty)
     const seen = new Set(ftsRows.map((r) => r.id));
@@ -258,7 +303,7 @@ export class SqliteRepository implements LedgerRepository {
            AND p.tool_name = ?
            AND json_extract(p.payload, '$.phase') = 'pre'
            AND json_extract(p.payload, '$.args_digest') = ?
-           AND NOT EXISTS (SELECT 1 FROM entries q WHERE q.ref_entry_id = p.id)
+           AND NOT EXISTS (SELECT 1 FROM entries q WHERE q.ref_entry_id = p.id AND q.source = 'hook_spine')
          ORDER BY p.id DESC LIMIT 1`,
       )
       .get(match.project, match.sessionId, match.tool, match.argsDigest) as Row | undefined;
@@ -279,6 +324,53 @@ export class SqliteRepository implements LedgerRepository {
       )
       .get(match.project, match.sessionId, match.tool, match.argsDigest) as Row | undefined;
     return row ? toEntry(row) : null;
+  }
+
+  async insertRecallEvent(e: NewRecallEvent): Promise<RecallEvent> {
+    const row: RecallEventRow = {
+      id: ulid(),
+      project: e.project,
+      session_id: e.sessionId ?? null,
+      created_at: new Date().toISOString(),
+      query: JSON.stringify(e.query),
+      returned: JSON.stringify(e.returned),
+      result_count: e.returned.length,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO recall_events (id, project, session_id, created_at, query, returned, result_count)
+         VALUES (@id, @project, @session_id, @created_at, @query, @returned, @result_count)`,
+      )
+      .run(row);
+    return toRecallEvent(row);
+  }
+
+  async listRecallEvents(project: string, limit = 100): Promise<RecallEvent[]> {
+    const rows = this.db
+      .prepare("SELECT * FROM recall_events WHERE project = ? ORDER BY id DESC LIMIT ?")
+      .all(project, clampLimit(limit, 1000)) as RecallEventRow[];
+    return rows.map(toRecallEvent);
+  }
+
+  async countProjects(): Promise<number> {
+    const row = this.db
+      .prepare("SELECT COUNT(DISTINCT project) c FROM entries WHERE source = 'self_report'")
+      .get() as { c: number };
+    return row.c;
+  }
+
+  async findReferrers(ids: string[]): Promise<Record<string, string[]>> {
+    if (ids.length === 0) return {};
+    const rows = this.db
+      .prepare(
+        `SELECT id, ref_entry_id FROM entries
+         WHERE source = 'self_report' AND ref_entry_id IN (${ids.map(() => "?").join(", ")})
+         ORDER BY id`,
+      )
+      .all(...ids) as Array<{ id: string; ref_entry_id: string }>;
+    const map: Record<string, string[]> = {};
+    for (const r of rows) (map[r.ref_entry_id] ??= []).push(r.id);
+    return map;
   }
 
   async close(): Promise<void> {

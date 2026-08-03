@@ -216,3 +216,100 @@ describe("SqliteRepository spine support", () => {
     expect(out.map((e) => e.title)).toEqual(["self"]);
   });
 });
+
+describe("recall events", () => {
+  it("inserts and lists recall events newest-first with round-tripped JSON", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const first = await repo.insertRecallEvent({
+      project: "p",
+      sessionId: "proc-A",
+      query: { text: "hooks restart", rank: "hybrid", source: "self_report", limit: 10 },
+      returned: [{ entry_id: "01AAA", rank: 1 }, { entry_id: "01BBB", rank: 2 }],
+    });
+    await repo.insertRecallEvent({
+      project: "p",
+      query: { rank: "recency", source: "self_report", limit: 5 },
+      returned: [],
+    });
+
+    expect(first.id).toBeTruthy();
+    expect(first.resultCount).toBe(2);
+
+    const events = await repo.listRecallEvents("p");
+    expect(events).toHaveLength(2);
+    expect(events[0].query.rank).toBe("recency"); // newest first
+    expect(events[0].sessionId).toBeNull();
+    expect(events[1].returned).toEqual([{ entry_id: "01AAA", rank: 1 }, { entry_id: "01BBB", rank: 2 }]);
+    expect(events[1].query.text).toBe("hooks restart");
+  });
+
+  it("scopes listRecallEvents by project", async () => {
+    const repo = new SqliteRepository(":memory:");
+    await repo.insertRecallEvent({ project: "a", query: { rank: "hybrid", source: "self_report", limit: 10 }, returned: [] });
+    expect(await repo.listRecallEvents("b")).toEqual([]);
+  });
+});
+
+describe("SqliteRepository.findOpenPre", () => {
+  it("only a spine post closes an open pre — a self-report ref must not close it", async () => {
+    const r = makeRepo();
+    const pre = await r.insertEntry({
+      kind: "spine_tool",
+      project: "evaluagent",
+      title: "PreToolUse: Edit",
+      body: "about to run Edit",
+      payload: { phase: "pre", args_digest: "d" },
+      source: "hook_spine",
+      toolName: "Edit",
+    });
+
+    const match = { project: "evaluagent", sessionId: null, tool: "Edit", argsDigest: "d" };
+    expect((await r.findOpenPre(match))?.id).toBe(pre.id);
+
+    // A self_report entry referencing the pre must NOT count as closing it.
+    await r.insertEntry({
+      kind: "friction",
+      project: "evaluagent",
+      title: "unrelated self report",
+      body: "b",
+      payload: { where: "x", kind: "tooling", intensity: 1 },
+      source: "self_report",
+      refEntryId: pre.id,
+    });
+    expect((await r.findOpenPre(match))?.id).toBe(pre.id);
+
+    // A spine post referencing the pre DOES close it.
+    await r.insertEntry({
+      kind: "spine_tool",
+      project: "evaluagent",
+      title: "PostToolUse: Edit",
+      body: "finished Edit",
+      payload: { phase: "post", args_digest: "d" },
+      source: "hook_spine",
+      toolName: "Edit",
+      refEntryId: pre.id,
+    });
+    expect(await r.findOpenPre(match)).toBeNull();
+  });
+});
+
+describe("countProjects and findReferrers", () => {
+  it("counts distinct self_report projects only", async () => {
+    const repo = new SqliteRepository(":memory:");
+    await repo.insertEntry({ kind: "friction", project: "a", title: "t", body: "b", payload: {} });
+    await repo.insertEntry({ kind: "friction", project: "b", title: "t", body: "b", payload: {} });
+    await repo.insertEntry({ kind: "spine_tool", project: "c", title: "t", body: "b", payload: {}, source: "hook_spine" });
+    expect(await repo.countProjects()).toBe(2);
+  });
+
+  it("maps referenced ids to self_report referrers, excluding spine refs", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const old = await repo.insertEntry({ kind: "friction", project: "a", title: "t", body: "b", payload: {} });
+    const fix = await repo.insertEntry({ kind: "friction", project: "a", title: "t2", body: "b", payload: {}, refEntryId: old.id });
+    await repo.insertEntry({ kind: "spine_tool", project: "a", title: "post", body: "b", payload: {}, source: "hook_spine", refEntryId: old.id });
+    const map = await repo.findReferrers([old.id, fix.id]);
+    expect(map[old.id]).toEqual([fix.id]);
+    expect(map[fix.id]).toBeUndefined();
+    expect(await repo.findReferrers([])).toEqual({});
+  });
+});

@@ -29,8 +29,8 @@ describe("runHook", () => {
     expect(res.written).toBe(1);
 
     const out = await s.recall({ source: "hook_spine" });
-    expect(out[0]!.kind).toBe("spine_tool");
-    expect(out[0]!.toolName).toBe("Edit");
+    expect(out.entries[0]!.kind).toBe("spine_tool");
+    expect(out.entries[0]!.toolName).toBe("Edit");
   });
 
   it("ignores malformed JSON without throwing", async () => {
@@ -53,6 +53,6 @@ describe("runHook", () => {
     );
     expect(res.written).toBe(1);
     const out = await s.recall({ source: "hook_spine" });
-    expect(out[0]!.kind).toBe("spine_lifecycle");
+    expect(out.entries[0]!.kind).toBe("spine_lifecycle");
   });
 });

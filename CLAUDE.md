@@ -22,3 +22,14 @@
   needs `EVALUAGENT_PROJECT` to match the MCP scope or it defaults to the cwd basename and
   splits entries across project tags.
 - Conventions: TDD (`npx vitest run`), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
+
+## Measurement conventions (post-HOLD read/measure bundle, 2026-08-02)
+
+- Every `recall_reasoning` call is logged to the `recall_events` table (query + returned
+  ids/ranks + proc-session id). This is the T2/T3 join key — analysis reads it via direct
+  SQL (`~/.evaluagent/ledger.db`).
+- Writes without an explicit session id get a `proc-<ulid>` per-server-process stamp.
+- When a conclusion overturns a stored entry, set `ref_entry_id` on the new entry; recall
+  surfaces `superseded_by` on the old one. Treat superseded entries as stale.
+- When a ledger lesson is promoted into a CLAUDE.md, tag the entry `promoted-to-claude-md`
+  (attribution: separates "carried by CLAUDE.md" from "carried by recall").

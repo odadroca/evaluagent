@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ulid } from "ulid";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 import { LedgerService } from "../service/ledger-service.js";
@@ -12,7 +13,11 @@ async function serve(): Promise<void> {
   const dbPath = resolveDbPath();
   const project = resolveProject();
   const repo = new SqliteRepository(dbPath);
-  const service = new LedgerService({ repo, defaultProject: project });
+  const service = new LedgerService({
+    repo,
+    defaultProject: project,
+    defaultSessionId: `proc-${ulid()}`,
+  });
   const server = createLedgerServer(service);
   await server.connect(new StdioServerTransport());
   // stdout is the JSON-RPC channel; status goes to stderr.

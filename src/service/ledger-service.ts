@@ -1,4 +1,4 @@
-import type { EntrySource, LedgerEntry, LedgerQuery, RankMode } from "../domain/entry.js";
+import type { EntrySource, LedgerEntry, LedgerQuery, RankMode, RecallResult } from "../domain/entry.js";
 import type { LedgerRepository } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
@@ -27,6 +27,8 @@ export interface RecordInput {
   tags?: string[];
   sessionId?: string | null;
   occurredAt?: string | null;
+  /** Earlier entry this one supersedes/corrects/refines. Must exist. */
+  refEntryId?: string | null;
 }
 
 /**
@@ -40,17 +42,21 @@ export interface LedgerServiceOptions {
   repo: LedgerRepository;
   ranker?: Ranker;
   defaultProject?: string;
+  /** Stamped on writes that carry no explicit session id (e.g. a per-process proxy id). */
+  defaultSessionId?: string;
 }
 
 export class LedgerService {
   private readonly repo: LedgerRepository;
   private readonly ranker: Ranker;
   private readonly defaultProject?: string;
+  private readonly defaultSessionId?: string;
 
   constructor(opts: LedgerServiceOptions) {
     this.repo = opts.repo;
     this.ranker = opts.ranker ?? new HybridRanker();
     this.defaultProject = opts.defaultProject;
+    this.defaultSessionId = opts.defaultSessionId;
   }
 
   async record(input: RecordInput): Promise<LedgerEntry> {
@@ -84,6 +90,17 @@ export class LedgerService {
       throw new LedgerValidationError("salience must be an integer in [0,3]");
     }
 
+    if (input.refEntryId != null && typeof input.refEntryId !== "string") {
+      throw new LedgerValidationError("ref_entry_id must be a string");
+    }
+
+    if (input.refEntryId != null) {
+      const ref = await this.repo.getEntry(input.refEntryId);
+      if (!ref) {
+        throw new LedgerValidationError(`ref_entry_id does not match any stored entry: ${input.refEntryId}`);
+      }
+    }
+
     const project = input.project ?? this.defaultProject;
     if (!project) {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
@@ -98,12 +115,13 @@ export class LedgerService {
       confidence: input.confidence ?? null,
       salience: input.salience,
       tags: input.tags,
-      sessionId: input.sessionId,
+      sessionId: input.sessionId ?? this.defaultSessionId ?? null,
       occurredAt: input.occurredAt,
+      refEntryId: input.refEntryId ?? null,
     });
   }
 
-  async recall(input: RecallInput): Promise<LedgerEntry[]> {
+  async recall(input: RecallInput): Promise<RecallResult> {
     const project = input.project ?? this.defaultProject;
     if (!project) {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
@@ -115,10 +133,41 @@ export class LedgerService {
 
     const candidates =
       rank === "recency"
-        ? (await this.repo.query(query)).map((entry) => ({ entry, textScore: null }))
+        ? query.text?.trim()
+          ? // Tokenized FTS (same interpretation as match/hybrid) — the whole-phrase LIKE
+            // in query() silently false-empties on multi-word text. The repo orders the
+            // pool newest-first for rank=recency so the cap can't evict recent matches.
+            await this.repo.search(query)
+          : (await this.repo.query({ ...query, text: undefined })).map((entry) => ({ entry, textScore: null }))
         : await this.repo.search(query);
 
-    return this.ranker.rank(query, candidates);
+    const ranked = this.ranker.rank(query, candidates);
+
+    try {
+      await this.repo.insertRecallEvent({
+        project,
+        sessionId: this.defaultSessionId ?? null,
+        query: {
+          ...(query.text !== undefined ? { text: query.text } : {}),
+          rank,
+          source,
+          ...(query.kinds && query.kinds.length > 0 ? { kinds: query.kinds } : {}),
+          ...(query.tags && query.tags.length > 0 ? { tags: query.tags } : {}),
+          limit,
+        },
+        returned: ranked.map((e, i) => ({ entry_id: e.id, rank: i + 1 })),
+      });
+    } catch (err) {
+      // Telemetry must never break recall — the lesson store is the product, the log is the meter.
+      process.stderr.write(`recall-event logging failed: ${(err as Error).message}\n`);
+    }
+
+    const [projectsTotal, referrers] = await Promise.all([
+      this.repo.countProjects(),
+      this.repo.findReferrers(ranked.map((e) => e.id)),
+    ]);
+
+    return { entries: ranked, scope: { project, projectsTotal }, referrers };
   }
 
   /**
@@ -131,13 +180,14 @@ export class LedgerService {
       throw new LedgerValidationError("project is required (no defaultProject configured)");
     }
 
+    const sessionId = write.sessionId ?? this.defaultSessionId ?? null;
     const payload: Record<string, unknown> = { ...(write.payload ?? {}) };
     let refEntryId: string | null = null;
 
     const tool = write.toolName ?? null;
     const argsDigest = typeof payload.args_digest === "string" ? payload.args_digest : null;
     if (write.kind === "spine_tool" && tool && argsDigest) {
-      const match = { project: proj, sessionId: write.sessionId ?? null, tool, argsDigest };
+      const match = { project: proj, sessionId, tool, argsDigest };
       if (payload.phase === "post") {
         const pre = await this.repo.findOpenPre(match);
         if (pre) {
@@ -158,7 +208,7 @@ export class LedgerService {
       payload,
       source: "hook_spine",
       toolName: write.toolName ?? null,
-      sessionId: write.sessionId ?? null,
+      sessionId,
       refEntryId,
     });
   }

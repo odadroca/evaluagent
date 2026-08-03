@@ -27,6 +27,11 @@ export const TOOLS: Tool[] = [
         tags: { type: "array", items: { type: "string" } },
         session_id: { type: "string" },
         occurred_at: { type: "string" },
+        ref_entry_id: {
+          type: "string",
+          description:
+            "entry_id of an earlier entry this one SUPERSEDES, corrects, or refines. Set it whenever a conclusion overturns a stored one — recall surfaces the link so stale entries are visibly outdated.",
+        },
       },
       required: ["kind", "title", "body", "payload"],
       additionalProperties: false,
@@ -35,7 +40,8 @@ export const TOOLS: Tool[] = [
   {
     name: "recall_reasoning",
     description:
-      "Recall the most relevant past reasoning entries for the current work. Defaults to hybrid ranking (blends text match, recency, salience, and tags). Use at the start of a task to learn from earlier instances.",
+      "Recall the most relevant past reasoning entries for the current work. Defaults to hybrid ranking (blends text match, recency, salience, and tags). Use at the start of a task to learn from earlier instances. " +
+      "Responses include the effective project scope (`scope.projects_total` shows how many projects exist beyond it) and per-entry `superseded_by` links — treat a superseded entry as potentially stale and read its successor.",
     inputSchema: {
       type: "object",
       properties: {
@@ -52,7 +58,7 @@ export const TOOLS: Tool[] = [
           type: "string",
           enum: ["recency", "match", "hybrid"],
           description:
-            "recency = newest first; match = strict FTS matches only (can be empty); hybrid = best-available, blends text + recency + salience + tags (default).",
+            "recency = newest first (text, if given, filters via the same tokenized FTS match); match = strict FTS matches only (can be empty); hybrid = best-available, blends text + recency + salience + tags (default).",
         },
         tags: { type: "array", items: { type: "string" }, description: "Filter/boost by tag overlap." },
         limit: { type: "integer", minimum: 1, maximum: 100 },
