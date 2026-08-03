@@ -33,3 +33,6 @@
   surfaces `superseded_by` on the old one. Treat superseded entries as stale.
 - When a ledger lesson is promoted into a CLAUDE.md, tag the entry `promoted-to-claude-md`
   (attribution: separates "carried by CLAUDE.md" from "carried by recall").
+- **T2 measurement epoch: 2026-08-03 ~08:26Z** (bundle went live at `873a041`; first
+  `recall_events` row `proc-01KZ3BQM…`). Filter analysis queries to after this point;
+  re-evaluation due ~2026-08-17…31.
