@@ -73,6 +73,21 @@ analysis session derived "new" requirements that were already written there (ent
 
 **Cheapest wins are usually completion, not invention.**
 
+### The two unbuilt tables are the project's main defect generator
+
+Full reconciliation: [`docs/evaluagent-reconciliation-2026-08-13.md`](./docs/evaluagent-reconciliation-2026-08-13.md).
+
+`sessions.external_id` and `projects` were specified in June and shipped denormalized. Between them
+they have produced **~10 workarounds, four of them in a single week**: the `proc-<ulid>` stamp
+(because `session_id` was 87% NULL); spine and self-report joining on neither project nor session;
+a HIGH bug in the 0c nudges where a session-joined count was structurally always 0; a project+recency
+proxy for `recall_events`; gate ordering untestable (2 of 80 events); no project listing; slug
+fragmentation fixed by hand-written SQL; provenance stuffed into `was:` tags.
+
+**Each workaround is new surface that then needs its own corrections — this is the churn engine.**
+Before inventing new capability, check whether the problem is an unbuilt piece of the design. Ask
+"which spec element would have prevented this?" before "what should I build?"
+
 ## Claude Code setup: hot-reload vs restart
 
 - **Hooks / `.claude/settings*.json` hot-reload mid-session** — *but only if* a settings file

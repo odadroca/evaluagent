@@ -140,7 +140,12 @@ the session keeps producing abundant ones at the same rate.** The nudge is addit
 needs *conversion* — catching the `surprise` that is really a `dead_end` at the moment of writing.
 That is where the 27 mislabelled entries live, and it reorders this sprint.
 
-### 0a — Stop-hook nudge *(minutes; settings only, no build, no restart)*
+### 0a — journal nudge ✅ **SHIPPED 2026-08-13 (`8c02a11`)**
+
+*Moved from `Stop` to `UserPromptSubmit`: Stop's `additionalContext` support is undocumented and its
+loop guard unverified, and at user scope a misfiring Stop hook would block session termination in
+every project. UserPromptSubmit is verified, loop-free, and fires mid-session with the work still in
+context — better capture than a retrospective prompt.*
 
 Not *"anything worth journaling?"* — that yields more `confidence`. Name the scarce kind:
 **"what did you abandon, and why?"** For `abandoned_branch` and `dead_end` end-of-session is the
@@ -166,7 +171,11 @@ any scope in one call. `list_projects` names all 45 projects.*
 Rationale for the pairing: `surprise` is a superset of `dead_end` with a cheaper payload, so the
 broad kind absorbs the narrow one unless something intervenes before the write.
 
-### 0c — Hook read path *(~1 session; build, no restart)*
+### 0c — Hook read path ✅ **SHIPPED 2026-08-13 (`8c02a11`)**
+
+*Also added a retry/`dead_end` nudge. An independent review found 9 issues, 2 HIGH, of which the two
+worst were invisible to 32 green unit tests because their fixtures replaced the queries that were
+wrong (ledger `01KZY4KW3C`). All fixed; 146 tests.*
 
 - **Suppress cold-project recall** — the gate hook counts entries in the resolved scope and skips
   injection at zero, removing ~41% of current ceremony.
@@ -358,6 +367,28 @@ against architecture invariant #1 (*store-first, never lossy*). **Separately and
 usage: the corpus contains real client material** (SAPSUP ticket numbers, named customers,
 customer-facing root causes). Hosting it is a data-governance decision requiring the unbuilt
 `redactSecrets` boundary — not a deployment step.
+
+---
+
+---
+
+## ⚠️ SUPERSEDED IN PART — read the reconciliation first
+
+**[`evaluagent-reconciliation-2026-08-13.md`](./evaluagent-reconciliation-2026-08-13.md)** re-baselines
+this document against the original June phasing. Summary of what it changes:
+
+- **Sprint 1 is on hold.** Its centrepiece (inverting recall's default scope) is not in the
+  architecture — it came from a field report — is largely redundant now that `ledger_get` and
+  `list_projects` exist, and conflicts with Sprint 0c: under a global default a "cold" project would
+  still return useful lessons, so suppressing the gate there becomes wrong. Salvage only verbosity
+  control, unknown-project errors, and enum values in validation messages.
+- **Sprints 2–4 wait.** New behavioural invention is frozen.
+- **Next build is the specified data model** — `projects` and `sessions` with `external_id`. Two
+  unbuilt tables have generated ~10 workarounds, four shipped this week; that is the churn engine.
+  Building them retires the `proc-<ulid>` stamp and both proxy fallbacks, makes gate placement
+  testable, makes `rename_project`/`merge_projects` trivial, and unblocks three more planned tools.
+
+The sprint numbering below is retained for traceability, not as a plan of record.
 
 ---
 
