@@ -172,22 +172,36 @@ broad kind absorbs the narrow one unless something intervenes before the write.
   (`ledger-service.ts:199`), consumed by nothing. **Blocked by open question 1** — it only exists
   where the spine runs, which today is this repo alone.
 
-### Measurement
+### Measurement *(design corrected 2026-08-13 — a point baseline would have manufactured success)*
 
-- **Metric:** scarce-kind share (`friction` + `dead_end` + `reconstruction` + `abandoned_branch`).
-- **Baseline: 18.1%** (n=271, 2026-08-13). Supersedes the 17.7% figure quoted earlier in this
-  document — that was computed mid-session, before the review's own entries landed.
-- **Window:** a rolling window of **N=100 entries**, not per-day. Throughput is far too spiky for
-  daily rates — the last fortnight ran 2, 3, 8, 12, 15, 6, 22, 13, 1 per day.
-- **Epoch:** set it when **0b** lands, not 0a. Note the pre-period is mildly contaminated by the
-  review session's own entries.
-- **Confounder to watch:** `dead_end` ran 2 / 4 / 1 on 08-10…08-12 — more in three days than in all
-  of July, *before* any change shipped. Either the investigation work naturally produces them or
-  discipline is already improving. Do not attribute post-change movement to the hooks without
-  checking this trend first.
+**There is a large pre-existing upward trend.** Scarce-kind share by 50-entry block:
 
-**Decision gate:** if a 100-entry window after 0b does not move composition, the server sprints
-below are unlikely to either — they address retrieval, which is already working.
+| Block | Span | Scarce | Share |
+|---|---|---|---|
+| #1 | Jun 22–28 | 7/50 | 14% |
+| #2 | Jun 29–Jul 02 | 6/50 | 12% |
+| #3 | Jul 02–21 | 4/50 | **8%** ← trough |
+| #4 | Jul 21–Aug 05 | 12/50 | 24% |
+| #5 | Aug 05–11 | 15/50 | **30%** ← peak |
+| #6 | Aug 11–13 | 5/23 | 22% |
+
+The share nearly **quadrupled from 8% to 30% with no intervention in place**. Consequences:
+
+- **Do not use 18.1% as the baseline.** It is a lifetime average that no longer describes current
+  behaviour — recent blocks run 22–30%. Comparing post-Sprint-0 output against 18.1% would score a
+  pre-existing trend as a win.
+- **Measure as an interrupted time series against the extrapolated trend**, in 50-entry blocks.
+- The `dead_end` uptick is broad, not a task artifact: 7 entries since Aug 1 across **5 projects and
+  4 sessions**, several sharply self-critical. This reads as genuine discipline change — plausibly
+  the day-40 rule finally biting — which is a real confounder, not noise.
+
+**Consequence for sequencing:** attribution for Sprint 0 will be muddy whatever we do, because the
+metric is already improving. **Ship 0b on its own merits** — `ledger_get` and `list_projects` fix
+reported, reproducible pain independently of composition — and treat composition attribution as
+secondary. Do not let a measurement problem hold up fixing a broken tool surface.
+
+**Decision gate (revised):** fund the server sprints if the tool-surface fixes prove out in use.
+Composition is worth tracking but is currently too confounded to gate spending on.
 
 ---
 
@@ -344,8 +358,19 @@ customer-facing root causes). Hosting it is a data-governance decision requiring
 
 ## Open questions for the owner
 
-1. **Spine: wire broadly or cut?** It is currently 1,411 rows of pure write cost with no consumer.
-   Sprint 3 proposes a two-week scoped trial to decide on evidence rather than intuition.
+1. ~~**Spine: wire broadly or cut?**~~ **RESOLVED 2026-08-13 — wire broadly.** The six spine hook
+   events are now wired at **user scope** (`~/.claude/settings.json`), so the spine captures in every
+   project rather than this repo alone. The redundant repo-level wiring in
+   `.claude/settings.local.json` was removed to avoid double-writing once both scopes load; that
+   file's `env` block still pins `EVALUAGENT_PROJECT=evaluagent` here. Backup at
+   `~/.claude/settings.json.bak-20260813-174308`.
+   **Two limits to know before relying on the new data:** (a) at user scope there is no per-project
+   `EVALUAGENT_PROJECT`, so the hook falls back to the **cwd basename** — spine and self-report
+   entries for the same work can land under different project slugs; (b) spine rows carry the real
+   host `session_id` while self-reports get a `proc-<ulid>` stamp, so **the two sources do not join
+   on session either**. This is the unbuilt `sessions.external_id` from the architecture doc. Within
+   -spine analysis (`retry_of`, pre/post duration, tool ordering) is unaffected and works today;
+   cross-source joins need normalisation or the real fix.
 2. **Does the deny-gate risk being disabled in practice?** A hard block on `ExitPlanMode` is the
    correct enforcement, but if it becomes an obstacle it will get switched off, and a disabled gate
    measures nothing. Worth deciding the escape hatch deliberately now.
