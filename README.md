@@ -15,9 +15,12 @@ A working slice, end-to-end:
 - **Recall-event logging**: every `recall_reasoning` call writes its effective query and the
   returned entry ids/ranks to a `recall_events` table (separate from `entries`, non-fatal on
   failure) — the join key for measuring whether recall changes later behavior.
-- **Process session stamping**: writes without an explicit `session_id` get a per-server-process
-  `proc-<ulid>` proxy id, so entries from one session can be grouped even when the caller never
-  passes one.
+- **Real session identity**: a `sessions` table keyed by `external_id` (the host session id). The
+  `SessionStart` hook opens the row; the MCP server — which cannot see the host session — resolves
+  the open session for its project and stamps that, so self-reports, recall events and the tool-call
+  spine all share one id. A per-process `proc-<ulid>` proxy remains as the fallback when no session
+  is open.
+- **`projects` table** with unique slugs, backfilled on open from existing data.
 - **Supersede links**: `record_reasoning` accepts `ref_entry_id` (validated to exist) pointing at
   the entry a new conclusion supersedes/corrects; recall marks the old entry `superseded_by`.
 - TypeBox + Ajv validation of the six introspective entry kinds.
@@ -38,7 +41,7 @@ and the anti-self-reinforcement / staleness guards.
 
 ```bash
 npm install
-npm test          # 120 tests
+npm test          # 153 tests
 npm run build     # compiles to dist/
 ```
 

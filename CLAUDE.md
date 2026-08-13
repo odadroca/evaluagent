@@ -73,20 +73,26 @@ analysis session derived "new" requirements that were already written there (ent
 
 **Cheapest wins are usually completion, not invention.**
 
-### The two unbuilt tables are the project's main defect generator
+### The two unbuilt tables were the project's main defect generator — now built (2026-08-14)
 
 Full reconciliation: [`docs/evaluagent-reconciliation-2026-08-13.md`](./docs/evaluagent-reconciliation-2026-08-13.md).
 
-`sessions.external_id` and `projects` were specified in June and shipped denormalized. Between them
-they have produced **~10 workarounds, four of them in a single week**: the `proc-<ulid>` stamp
-(because `session_id` was 87% NULL); spine and self-report joining on neither project nor session;
-a HIGH bug in the 0c nudges where a session-joined count was structurally always 0; a project+recency
-proxy for `recall_events`; gate ordering untestable (2 of 80 events); no project listing; slug
-fragmentation fixed by hand-written SQL; provenance stuffed into `was:` tags.
+`projects` and `sessions` (with `external_id`) were specified in June, shipped denormalized, and
+between them produced **~10 workarounds** — the `proc-<ulid>` stamp, spine/self-report joining on
+nothing, a HIGH bug in the 0c nudges, a project+recency proxy for `recall_events`, gate ordering
+untestable, no project listing, slug fragmentation fixed by hand-written SQL.
 
-**Each workaround is new surface that then needs its own corrections — this is the churn engine.**
-Before inventing new capability, check whether the problem is an unbuilt piece of the design. Ask
-"which spec element would have prevented this?" before "what should I build?"
+**Both shipped 2026-08-14 (`991c756`).** The `SessionStart` hook opens a `sessions` row keyed by the
+host session id; the MCP server — which cannot see the host session — resolves the open session for
+its project and stamps that. Self-reports, recall events and spine rows now share one id.
+
+> **⚠️ The fix is FORWARD-ONLY.** All ~3,400 pre-existing entries keep their old ids, and the
+> historical mapping cannot be reconstructed. Any analysis over data written before 2026-08-14 still
+> needs the project+recency proxies. Check `created_at` before assuming a session join will work.
+
+**The standing lesson survives the fix:** each workaround is new surface that then needs its own
+corrections. Before inventing new capability, ask **"which spec element would have prevented this?"**
+before "what should I build?"
 
 ## Claude Code setup: hot-reload vs restart
 
@@ -108,18 +114,20 @@ Before inventing new capability, check whether the problem is an unbuilt piece o
   not just this repo. The repo-level hook wiring was removed to stop both scopes double-writing;
   `.claude/settings.local.json` still keeps `EVALUAGENT_PROJECT=evaluagent` and permissions.
   **Two consequences for analysis:** at user scope there is no per-project `EVALUAGENT_PROJECT`, so
-  the hook falls back to the **cwd basename**; and spine rows carry the real host `session_id` while
-  self-reports get `proc-<ulid>`. **So spine and self-report join on neither project nor session** —
-  within-spine work (`retry_of`, pre/post duration, tool ordering) is fine; cross-source joins need
-  normalisation or the unbuilt `sessions.external_id`.
-- Conventions: TDD (`npx vitest run`, 120 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
+  the hook falls back to the **cwd basename**. The session half of this is **fixed as of 2026-08-14**
+  (`sessions.external_id` is built, so new writes share one id); the project half remains, and all
+  pre-2026-08-14 data still joins on neither.
+- Conventions: TDD (`npx vitest run`, 153 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
 
 ## Measurement conventions (post-HOLD read/measure bundle, 2026-08-02)
 
 - Every `recall_reasoning` call is logged to the `recall_events` table (query + returned
   ids/ranks + proc-session id). This is the T2/T3 join key — analysis reads it via direct
   SQL (`~/.evaluagent/ledger.db`).
-- Writes without an explicit session id get a `proc-<ulid>` per-server-process stamp.
+- **Session stamping (changed 2026-08-14):** a write now takes the **real host session id**, resolved
+  from the open `sessions` row for its project. `proc-<ulid>` remains only as a fallback when no
+  session is open (e.g. a caller outside Claude Code). Entries written *before* 2026-08-14 still
+  carry the old proxy ids.
 - When a conclusion overturns a stored entry, set `ref_entry_id` on the new entry; recall
   surfaces `superseded_by` on the old one. Treat superseded entries as stale.
 - When a ledger lesson is promoted into a CLAUDE.md, tag the entry `promoted-to-claude-md`

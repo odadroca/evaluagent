@@ -40,7 +40,7 @@ instead — a deliberate deviation, since agents consume tools far more reliably
 
 | Specified | Status |
 |---|---|
-| `projects(id, slug UNIQUE, label, created_at)` | ❌ denormalized to `entries.project` |
+| `projects(id, slug UNIQUE, label, created_at)` | ✅ **built 2026-08-14 (`991c756`)** — `entries.project` retained alongside |
 | `sessions(id, project_id, external_id, …)` | ❌ denormalized to `entries.session_id` |
 | `tags` + `entry_tags` | ❌ JSON column |
 | `entries.outcome` (anti-self-reinforcement — spec calls it *first-class*) | ❌ |
@@ -115,6 +115,12 @@ stuffed into `was:` tags), and the cwd-basename fallback at user scope.
 **Two unbuilt tables → roughly ten downstream workarounds, four of them shipped this week.** Each
 workaround is new surface that then needs its own corrections. *That is the jitter generator.*
 
+> **RESOLVED 2026-08-14 (`991c756`).** Both tables are built. `SessionStart` opens a `sessions` row
+> keyed by the host id; the MCP server resolves it and stamps the real id, so self-reports, recall
+> events and spine rows finally share one session. **Forward-only** — the ~3,400 pre-existing entries
+> keep their old ids and that mapping cannot be reconstructed, so historical analysis still needs the
+> project+recency proxies. The workarounds themselves stay in place for now, serving old data.
+
 ---
 
 ## 5. Recommendation
@@ -122,7 +128,8 @@ workaround is new surface that then needs its own corrections. *That is the jitt
 **Freeze new behavioural invention.** Sprint 1, Sprint 2, and further nudges all wait.
 
 **Build the data model the architecture already specifies** — `projects` and `sessions` with
-`external_id`. This is not a new idea; it is completion of a June decision. It would:
+`external_id`. ✅ **DONE 2026-08-14 (`991c756`).** This was not a new idea; it was completion of a
+June decision. It:
 
 - retire the `proc-<ulid>` stamp and both proxy fallbacks shipped on 2026-08-13;
 - make spine ↔ self-report joins real, so gate placement becomes testable;
