@@ -117,7 +117,7 @@ before "what should I build?"
   the hook falls back to the **cwd basename**. The session half of this is **fixed as of 2026-08-14**
   (`sessions.external_id` is built, so new writes share one id); the project half remains, and all
   pre-2026-08-14 data still joins on neither.
-- Conventions: TDD (`npx vitest run`, 153 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
+- Conventions: TDD (`npx vitest run`, 156 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
 
 ## Measurement conventions (post-HOLD read/measure bundle, 2026-08-02)
 

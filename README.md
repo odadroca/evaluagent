@@ -41,7 +41,7 @@ and the anti-self-reinforcement / staleness guards.
 
 ```bash
 npm install
-npm test          # 153 tests
+npm test          # 156 tests
 npm run build     # compiles to dist/
 ```
 
