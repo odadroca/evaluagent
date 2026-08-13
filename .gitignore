@@ -1,5 +1,6 @@
 # Claude Code local session memory + personal config (not part of the project)
 .remember/
+.superpowers/
 .claude/settings.local.json
 
 # Node / build

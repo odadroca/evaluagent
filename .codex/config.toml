@@ -1,0 +1,15 @@
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+EVALUAGENT_PROJECT = "evaluagent"
+
+[mcp_servers.evaluagent]
+command = "node"
+args = [
+    "C:/GITHUB/Evaluagent/dist/bin/ledger.js",
+    "serve",
+]
+
+[mcp_servers.evaluagent.env]
+EVALUAGENT_PROJECT = "evaluagent"
