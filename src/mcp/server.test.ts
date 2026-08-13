@@ -174,3 +174,72 @@ describe("MCP ledger server", () => {
     expect(newEntry.superseded_by).toEqual([]);
   });
 });
+
+describe("MCP ledger_get", () => {
+  it("retrieves an entry written under a different project than the server default", async () => {
+    const client = await connectedClient();
+    const rec = await client.callTool({
+      name: "record_reasoning",
+      arguments: {
+        kind: "surprise",
+        title: "filed somewhere else",
+        body: "the entry a caller could not reach",
+        payload: { expected: "here", actual: "elsewhere", magnitude: 2 },
+        project: "somewhere-else",
+      },
+    });
+    const { entry_id } = JSON.parse(textOf(rec));
+
+    const got = await client.callTool({ name: "ledger_get", arguments: { entry_id } });
+    expect(got.isError).toBeFalsy();
+    const entry = JSON.parse(textOf(got));
+    expect(entry.entry_id).toBe(entry_id);
+    expect(entry.project).toBe("somewhere-else");
+    expect(entry.title).toBe("filed somewhere else");
+    expect(entry.superseded_by).toEqual([]);
+  });
+
+  it("errors clearly on an unknown id instead of returning an empty success", async () => {
+    const client = await connectedClient();
+    const got = await client.callTool({
+      name: "ledger_get",
+      arguments: { entry_id: "01ZZZZZZZZZZZZZZZZZZZZZZZZ" },
+    });
+    expect(got.isError).toBe(true);
+    expect(textOf(got)).toMatch(/not found/i);
+  });
+});
+
+describe("MCP list_projects", () => {
+  it("names the projects that projects_total only counts", async () => {
+    const client = await connectedClient();
+    for (const project of ["alpha", "alpha", "beta"]) {
+      await client.callTool({
+        name: "record_reasoning",
+        arguments: {
+          kind: "surprise",
+          title: "t",
+          body: "b",
+          payload: { expected: "a", actual: "b", magnitude: 1 },
+          project,
+        },
+      });
+    }
+
+    const res = await client.callTool({ name: "list_projects", arguments: {} });
+    expect(res.isError).toBeFalsy();
+    const out = JSON.parse(textOf(res));
+    expect(out.count).toBe(2);
+    expect(out.projects.map((p: { project: string }) => p.project)).toEqual(["alpha", "beta"]);
+    expect(out.projects[0].entries).toBe(2);
+    expect(out.projects[0].last_written).toBeTruthy();
+  });
+
+  it("is advertised alongside the other tools", async () => {
+    const client = await connectedClient();
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("ledger_get");
+    expect(names).toContain("list_projects");
+  });
+});

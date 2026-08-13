@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
 import type { AnyKind, Candidate, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
 import type { NewRecallEvent, RecallEvent } from "../../domain/recall-event.js";
-import type { LedgerRepository, SpineMatch } from "../ledger-repository.js";
+import type { LedgerRepository, ProjectSummary, SpineMatch } from "../ledger-repository.js";
 import { clampLimit } from "../../domain/limits.js";
 
 // Monotonic so ids are strictly increasing even within the same millisecond —
@@ -357,6 +357,23 @@ export class SqliteRepository implements LedgerRepository {
       .prepare("SELECT COUNT(DISTINCT project) c FROM entries WHERE source = 'self_report'")
       .get() as { c: number };
     return row.c;
+  }
+
+  async listProjects(): Promise<ProjectSummary[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT project, COUNT(*) AS entries, MAX(created_at) AS last_written
+           FROM entries
+          WHERE source = 'self_report'
+          GROUP BY project
+          ORDER BY entries DESC, project ASC`,
+      )
+      .all() as Array<{ project: string; entries: number; last_written: string }>;
+    return rows.map((r) => ({
+      project: r.project,
+      entries: r.entries,
+      lastWritten: r.last_written,
+    }));
   }
 
   async findReferrers(ids: string[]): Promise<Record<string, string[]>> {

@@ -10,7 +10,11 @@ export const TOOLS: Tool[] = [
   {
     name: "record_reasoning",
     description:
-      "Record one introspective reasoning entry (a surprise, dead-end, confidence call, abandoned branch, expensive reconstruction, or friction point) so a future instance can recall it.",
+      "Record one introspective reasoning entry (a surprise, dead-end, confidence call, abandoned branch, expensive reconstruction, or friction point) so a future instance can recall it. " +
+      "CHOOSING THE KIND — `surprise` is the broadest kind and will fit almost anything, so check the narrower ones first: " +
+      "if you PURSUED AN APPROACH THAT FAILED, it is a `dead_end`, not a `surprise` — and its `signal` field (what should have tipped you off, and when) is the part worth recording. " +
+      "If you left a line of work unfinished, it is an `abandoned_branch`. If something was tangled or slow to work with, it is `friction`. " +
+      "Record each ruled-out hypothesis as its own entry rather than bundling several into one summary; a negative result is a first-class result.",
     inputSchema: {
       type: "object",
       properties: {
@@ -65,5 +69,26 @@ export const TOOLS: Tool[] = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: "ledger_get",
+    description:
+      "Fetch one entry by its entry_id, from any project. Not scoped to the current project — an id is globally unique, and you usually hold one precisely because the entry lives somewhere recall cannot see. " +
+      "Returns the full entry plus `superseded_by`. Use this when you have an id from a handoff, a commit message, or an earlier session.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entry_id: { type: "string", description: "The ULID of the entry to fetch." },
+      },
+      required: ["entry_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_projects",
+    description:
+      "List every project in the ledger with its entry count and most recent write, busiest first. " +
+      "Use it when `recall_reasoning` returns a `scope.projects_total` larger than expected, or to find the project name an entry was filed under before recalling from it.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
 ];

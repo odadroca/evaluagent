@@ -38,7 +38,7 @@ and the anti-self-reinforcement / staleness guards.
 
 ```bash
 npm install
-npm test          # 109 tests
+npm test          # 120 tests
 npm run build     # compiles to dist/
 ```
 
@@ -105,6 +105,12 @@ Code the bridge is simply absent and the ledger holds self-report entries only.
   — store one introspective entry. `kind` ∈ `surprise | dead_end | confidence | abandoned_branch | reconstruction | friction`; `payload` is validated per kind. Set `ref_entry_id` when the entry supersedes/corrects an earlier one (must reference an existing entry).
 - **`recall_reasoning`** `{ project?, kinds?, text?, source?, rank?, tags?, limit? }` — relevant entries ranked by hybrid (FTS5 full-text + recency + salience + tag overlap; default, best-available), `match` (strict FTS, may be empty), or `recency` (newest first; `text`, if given, filters via the same tokenized FTS match, and the candidate pool keeps the newest matches). Defaults to `source: "self_report"` (the lessons); pass `"hook_spine"` to read the automatic spine. `tags` boosts by overlap. `limit` is clamped to 1..100.
   The response carries `scope: { project, projects_total }` (the effective project filter vs how many projects exist in the store) and, per entry, `project` and `superseded_by` (ids of later entries that reference it — treat a superseded entry as potentially stale). Every call is logged to `recall_events`.
+- **`ledger_get`** `{ entry_id }` — one entry by id, **from any project**. Deliberately not scoped: an
+  id is globally unique, and a caller usually holds one precisely because the entry lives somewhere
+  recall cannot see. Returns the full entry plus `superseded_by`; errors on an unknown id rather than
+  returning an empty success.
+- **`list_projects`** `{}` — every project with `entries` and `last_written`, busiest first. The
+  browse face for `scope.projects_total`, which otherwise only tells you how much you cannot see.
 
 ## Layout
 

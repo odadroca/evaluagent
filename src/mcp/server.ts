@@ -77,6 +77,45 @@ async function recallReasoning(
   });
 }
 
+async function ledgerGet(
+  service: LedgerService,
+  args: Record<string, unknown>,
+): Promise<CallToolResult> {
+  const id = String(args.entry_id ?? "");
+  const found = await service.getEntry(id);
+  if (!found) return err(`entry not found: ${id}`);
+  const { entry: e, supersededBy } = found;
+  return ok({
+    entry_id: e.id,
+    kind: e.kind,
+    project: e.project,
+    title: e.title,
+    body: e.body,
+    tags: e.tags,
+    confidence: e.confidence,
+    salience: e.salience,
+    created_at: e.createdAt,
+    occurred_at: e.occurredAt,
+    session_id: e.sessionId,
+    source: e.source,
+    payload: e.payload,
+    ref_entry_id: e.refEntryId,
+    superseded_by: supersededBy,
+  });
+}
+
+async function listProjects(service: LedgerService): Promise<CallToolResult> {
+  const projects = await service.listProjects();
+  return ok({
+    count: projects.length,
+    projects: projects.map((p) => ({
+      project: p.project,
+      entries: p.entries,
+      last_written: p.lastWritten,
+    })),
+  });
+}
+
 /** Build the MCP server (transport-agnostic; connect a transport via `.connect`). */
 export function createLedgerServer(service: LedgerService): Server {
   const server = new Server(
@@ -95,6 +134,10 @@ export function createLedgerServer(service: LedgerService): Server {
           return await recordReasoning(service, args);
         case "recall_reasoning":
           return await recallReasoning(service, args);
+        case "ledger_get":
+          return await ledgerGet(service, args);
+        case "list_projects":
+          return await listProjects(service);
         default:
           return err(`unknown tool: ${name}`);
       }

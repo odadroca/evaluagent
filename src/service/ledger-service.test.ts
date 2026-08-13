@@ -431,3 +431,44 @@ describe("recency + text", () => {
     expect(result.entries.map((e) => e.id)).toEqual([b.id, a.id]);
   });
 });
+
+describe("LedgerService.getEntry", () => {
+  it("fetches an entry by id from any project, ignoring the default scope", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    const other = await s.record({ ...surprise, project: "somewhere-else" } as never);
+
+    const got = await s.getEntry(other.id);
+
+    expect(got).not.toBeNull();
+    expect(got!.entry.id).toBe(other.id);
+    expect(got!.entry.project).toBe("somewhere-else");
+  });
+
+  it("surfaces superseded_by so a stale entry is visibly outdated", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    const old = await s.record({ ...surprise, title: "v1" } as never);
+    const fix = await s.record({ ...surprise, title: "v2", refEntryId: old.id } as never);
+
+    expect((await s.getEntry(old.id))!.supersededBy).toEqual([fix.id]);
+    expect((await s.getEntry(fix.id))!.supersededBy).toEqual([]);
+  });
+
+  it("returns null for an unknown id rather than throwing", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    expect(await s.getEntry("01ZZZZZZZZZZZZZZZZZZZZZZZZ")).toBeNull();
+  });
+});
+
+describe("LedgerService.listProjects", () => {
+  it("lists every project regardless of the configured default scope", async () => {
+    const s = svc({ defaultProject: "evaluagent" });
+    await s.record({ ...surprise, project: "alpha" } as never);
+    await s.record({ ...surprise, project: "alpha" } as never);
+    await s.record({ ...surprise, project: "beta" } as never);
+
+    const projects = await s.listProjects();
+
+    expect(projects.map((p) => p.project)).toEqual(["alpha", "beta"]);
+    expect(projects[0]!.entries).toBe(2);
+  });
+});

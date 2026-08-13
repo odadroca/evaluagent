@@ -313,3 +313,39 @@ describe("countProjects and findReferrers", () => {
     expect(await repo.findReferrers([])).toEqual({});
   });
 });
+
+describe("SqliteRepository.listProjects", () => {
+  it("returns each self_report project with its entry count and newest write, busiest first", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "alpha", title: "a1" }));
+    await r.insertEntry(newEntry({ project: "alpha", title: "a2" }));
+    await r.insertEntry(newEntry({ project: "beta", title: "b1" }));
+
+    const projects = await r.listProjects();
+
+    expect(projects.map((p) => p.project)).toEqual(["alpha", "beta"]);
+    expect(projects[0]!.entries).toBe(2);
+    expect(projects[1]!.entries).toBe(1);
+    expect(projects[0]!.lastWritten).toBeTruthy();
+  });
+
+  it("excludes hook_spine rows so the browse face shows lessons, not tool noise", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "alpha" }));
+    await r.insertEntry({
+      kind: "spine_tool" as never,
+      project: "spine-only",
+      title: "PreToolUse: Bash",
+      body: "",
+      payload: { phase: "pre", tool: "Bash" },
+      source: "hook_spine",
+    } as never);
+
+    const projects = await r.listProjects();
+    expect(projects.map((p) => p.project)).toEqual(["alpha"]);
+  });
+
+  it("returns an empty list on an empty store", async () => {
+    expect(await makeRepo().listProjects()).toEqual([]);
+  });
+});

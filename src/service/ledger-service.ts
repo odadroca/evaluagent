@@ -1,5 +1,5 @@
 import type { EntrySource, LedgerEntry, LedgerQuery, RankMode, RecallResult } from "../domain/entry.js";
-import type { LedgerRepository } from "../repo/ledger-repository.js";
+import type { LedgerRepository, ProjectSummary } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
 import { isEntryKind, validatePayload } from "../domain/entry-kinds.js";
@@ -168,6 +168,25 @@ export class LedgerService {
     ]);
 
     return { entries: ranked, scope: { project, projectsTotal }, referrers };
+  }
+
+  /**
+   * Fetch one entry by id, with the ids of any entries that supersede it.
+   *
+   * Deliberately NOT project-scoped: an id is globally unique, and the caller
+   * usually has it precisely because the entry is somewhere they cannot see —
+   * scoping this would reproduce the "lost entry" it exists to solve.
+   */
+  async getEntry(id: string): Promise<{ entry: LedgerEntry; supersededBy: string[] } | null> {
+    const entry = await this.repo.getEntry(id);
+    if (!entry) return null;
+    const referrers = await this.repo.findReferrers([entry.id]);
+    return { entry, supersededBy: referrers[entry.id] ?? [] };
+  }
+
+  /** Every project with entry counts and freshness — the browse face for `projects_total`. */
+  async listProjects(): Promise<ProjectSummary[]> {
+    return this.repo.listProjects();
   }
 
   /**

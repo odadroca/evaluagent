@@ -1,6 +1,13 @@
 import type { Candidate, LedgerEntry, LedgerQuery, NewEntry } from "../domain/entry.js";
 import type { NewRecallEvent, RecallEvent } from "../domain/recall-event.js";
 
+/** One project's browse-face summary: what exists, how much, and how fresh. */
+export interface ProjectSummary {
+  project: string;
+  entries: number;
+  lastWritten: string;
+}
+
 /** Identifies a specific tool invocation across separate hook processes. */
 export interface SpineMatch {
   project: string;
@@ -29,6 +36,11 @@ export interface LedgerRepository {
   listRecallEvents(project: string, limit?: number): Promise<RecallEvent[]>;
   /** Distinct projects among self_report entries (scope-visibility metadata). */
   countProjects(): Promise<number>;
+  /**
+   * Every self_report project with its entry count and newest write, busiest first.
+   * Without this, `countProjects` only tells a caller how much it cannot see.
+   */
+  listProjects(): Promise<ProjectSummary[]>;
   /** Map of entry id → ids of self_report entries whose ref_entry_id points at it. */
   findReferrers(ids: string[]): Promise<Record<string, string[]>>;
   close(): Promise<void>;
