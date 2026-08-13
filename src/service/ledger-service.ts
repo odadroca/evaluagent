@@ -115,7 +115,7 @@ export class LedgerService {
       confidence: input.confidence ?? null,
       salience: input.salience,
       tags: input.tags,
-      sessionId: input.sessionId ?? this.defaultSessionId ?? null,
+      sessionId: input.sessionId ?? (await this.repo.resolveSessionId(project)) ?? this.defaultSessionId ?? null,
       occurredAt: input.occurredAt,
       refEntryId: input.refEntryId ?? null,
     });
@@ -146,7 +146,9 @@ export class LedgerService {
     try {
       await this.repo.insertRecallEvent({
         project,
-        sessionId: this.defaultSessionId ?? null,
+        // Real host session id when one is open, so recall_events finally joins the spine;
+        // the proc-<ulid> stamp remains only as a fallback for callers outside a session.
+        sessionId: (await this.repo.resolveSessionId(project)) ?? this.defaultSessionId ?? null,
         query: {
           ...(query.text !== undefined ? { text: query.text } : {}),
           rank,
@@ -203,6 +205,15 @@ export class LedgerService {
    * Persist a behavioral-spine entry from the hook bridge. Bypasses introspective
    * payload validation (the mapper is trusted) and tags it source="hook_spine".
    */
+  /** Open/close a session from the hook bridge (SessionStart / SessionEnd). */
+  async startSession(project: string, externalId: string): Promise<string> {
+    return this.repo.startSession({ project, externalId });
+  }
+
+  async endSession(externalId: string): Promise<void> {
+    return this.repo.endSession(externalId);
+  }
+
   async recordSpine(write: SpineWrite, project?: string): Promise<LedgerEntry> {
     const proj = project ?? this.defaultProject;
     if (!proj) {

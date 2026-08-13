@@ -64,6 +64,17 @@ export interface LedgerRepository {
    * Without this, `countProjects` only tells a caller how much it cannot see.
    */
   listProjects(): Promise<ProjectSummary[]>;
+  /** Ensure a project row exists for a slug; returns its stable id. */
+  ensureProject(slug: string, label?: string): Promise<string>;
+  /** Open (or re-open) a session keyed by the host session id. Returns that external id. */
+  startSession(input: { project: string; externalId: string; agent?: string; task?: string }): Promise<string>;
+  /** Close a session by its host session id. */
+  endSession(externalId: string): Promise<void>;
+  /**
+   * The open session's host id for a project, or null.
+   * Lets an MCP-server write stamp the REAL session id rather than a proc-<ulid> proxy.
+   */
+  resolveSessionId(project: string): Promise<string | null>;
   /** One-pass counts for the hook bridge's nudge decision (runs per tool call — keep it cheap). */
   getNudgeCounts(project: string, sessionId: string | null): Promise<NudgeCounts>;
   /** Remember that a nudge kind fired this session, so it fires at most once. */

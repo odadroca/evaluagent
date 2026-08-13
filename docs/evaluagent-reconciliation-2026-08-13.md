@@ -138,8 +138,33 @@ a global default, a "cold" project would still return useful cross-project lesso
 the gate there becomes wrong. Salvage only the three items that don't depend on it — verbosity
 control, unknown-project errors, and enum values in validation messages.
 
-**Decide the Calane question deliberately.** Close it or retire it in writing; leaving a locked
-decision silently unimplemented is what let Phase 4 quietly lose its foundation.
+**Calane: PARKED, with a named unblock** *(resolved 2026-08-14, ledger `01KZYMFSMS`)*. Not retired —
+an earlier draft of this section said "close it or retire it", which was wrong. `@llm-pipe/core` is
+publish-ready (proper `main`/`types`/`exports`, `files: ["dist"]`, not private, dependencies
+overlapping evaluagent's without conflict), and `packages/telemetry` / `packages/stores` /
+`packages/mcp-server` all exist — the reuse map describes real code. The mechanical blocker is only
+that it is a **subpackage of a private-root pnpm workspace**, and npm git dependencies cannot target
+a repository subdirectory.
+
+- **State:** deferred. Buys nothing today — Phase 4 has no caller and evaluagent works standalone.
+- **Unblock:** `pnpm build && npm publish` `@llm-pipe/core`, then a one-line dependency here.
+- **Trigger to revisit:** Phase 4 (REST/OTel) acquiring a caller, or hosting needing `redactSecrets`.
+
+The defect was never the pairing — it was a decision recorded as **locked** sitting silently
+unimplemented, unreadable as pending vs. abandoned. Writing the state and the unblock fixes that at
+zero cost. Note also that evaluagent built its own MCP server while `packages/mcp-server` already
+existed: a second reuse-map item quietly re-implemented.
+
+---
+
+### On why these items stalled
+
+The owner's framing, which is better than treating this as drift: evaluagent's development was
+deliberately gated on proving value rather than building speculatively, and **that same gate is what
+left Calane, Phase 4 and half the tool surface stranded**. Value-gating and completeness are in
+tension by construction — the scope narrowed *because* the discipline worked. Stalled spec items are
+therefore a predictable cost of a good rule, not evidence of a bad one. What needs fixing is not the
+gate but the bookkeeping: a parked item must say it is parked, and what would unpark it.
 
 ---
 

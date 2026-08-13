@@ -151,3 +151,77 @@ describe("runHook — nudge integration (real repo, real counts)", () => {
     await repo.close();
   });
 });
+
+describe("session unification — the point of the projects/sessions tables", () => {
+  it("a self-report written after SessionStart carries the REAL host session id, joining the spine", async () => {
+    const repo = new SqliteRepository(":memory:");
+    // defaultSessionId is the proc-<ulid> proxy the MCP server would otherwise stamp.
+    const service = new LedgerService({
+      repo,
+      defaultProject: "proj",
+      defaultSessionId: "proc-PROXY",
+    });
+
+    // 1. the hook opens the session, as SessionStart would
+    await runHook(
+      JSON.stringify({ hook_event_name: "SessionStart", session_id: "host-REAL" }),
+      service,
+      "proj",
+    );
+
+    // 2. a tool call writes a spine row under the host id
+    await runHook(
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        session_id: "host-REAL",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      }),
+      service,
+      "proj",
+    );
+
+    // 3. the MCP server records a lesson — it cannot see the host session, but resolves it
+    const entry = await service.record({
+      kind: "surprise",
+      title: "t",
+      body: "b",
+      payload: { expected: "a", actual: "b", magnitude: 1 },
+    } as never);
+
+    expect(entry.sessionId, "self-report must take the real session id, not proc-PROXY").toBe("host-REAL");
+
+    const spine = await service.recall({ project: "proj", source: "hook_spine", rank: "recency" });
+    expect(spine.entries[0]!.sessionId).toBe("host-REAL");
+    expect(entry.sessionId).toBe(spine.entries[0]!.sessionId); // THE join that never worked
+    await repo.close();
+  });
+
+  it("falls back to the proc proxy when no session is open", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "proj", defaultSessionId: "proc-PROXY" });
+    const entry = await service.record({
+      kind: "surprise",
+      title: "t",
+      body: "b",
+      payload: { expected: "a", actual: "b", magnitude: 1 },
+    } as never);
+    expect(entry.sessionId).toBe("proc-PROXY");
+    await repo.close();
+  });
+
+  it("stops attaching writes to a session once SessionEnd has fired", async () => {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "proj", defaultSessionId: "proc-PROXY" });
+    await runHook(JSON.stringify({ hook_event_name: "SessionStart", session_id: "host-REAL" }), service, "proj");
+    await runHook(JSON.stringify({ hook_event_name: "SessionEnd", session_id: "host-REAL" }), service, "proj");
+    const entry = await service.record({
+      kind: "surprise",
+      title: "t",
+      body: "b",
+      payload: { expected: "a", actual: "b", magnitude: 1 },
+    } as never);
+    expect(entry.sessionId).toBe("proc-PROXY");
+    await repo.close();
+  });
+});

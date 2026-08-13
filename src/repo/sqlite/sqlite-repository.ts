@@ -43,6 +43,33 @@ CREATE TABLE IF NOT EXISTS recall_events (
 CREATE INDEX IF NOT EXISTS idx_recall_events_project ON recall_events(project, id DESC);
 `;
 
+/**
+ * Scope tables from architecture §3, finally built. `sessions.external_id` is the host
+ * (Claude Code) session id — the join key that lands hook-spine and self-report in the
+ * same session. Its absence is what forced the `proc-<ulid>` stamp and, downstream of
+ * that, roughly ten workarounds; see docs/evaluagent-reconciliation-2026-08-13.md.
+ */
+const SCOPE_DDL = `
+CREATE TABLE IF NOT EXISTS projects (
+  id         TEXT PRIMARY KEY,
+  slug       TEXT NOT NULL UNIQUE,
+  label      TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL,
+  external_id TEXT,
+  agent       TEXT,
+  task        TEXT,
+  started_at  TEXT NOT NULL,
+  ended_at    TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_external ON sessions(external_id)
+  WHERE external_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_open ON sessions(project_id, ended_at, started_at DESC);
+`;
+
 const FTS_DDL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
   title, body,
@@ -161,7 +188,9 @@ export class SqliteRepository implements LedgerRepository {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.exec(DDL);
+    this.db.exec(SCOPE_DDL);
     this.migrateColumns();
+    this.backfillProjects();
     this.db.exec(REF_INDEX_DDL);
     this.migrateFts();
   }
@@ -382,6 +411,80 @@ export class SqliteRepository implements LedgerRepository {
       entries: r.entries,
       lastWritten: r.last_written,
     }));
+  }
+
+  /** Seed `projects` from whatever slugs the denormalized column already holds (idempotent). */
+  private backfillProjects(): void {
+    const rows = this.db
+      .prepare("SELECT DISTINCT project FROM entries WHERE project NOT IN (SELECT slug FROM projects)")
+      .all() as Array<{ project: string }>;
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO projects (id, slug, label, created_at) VALUES (?,?,NULL,?)",
+    );
+    const now = new Date().toISOString();
+    for (const r of rows) ins.run(ulid(), r.project, now);
+  }
+
+  async ensureProject(slug: string, label?: string): Promise<string> {
+    const found = this.db.prepare("SELECT id FROM projects WHERE slug=?").get(slug) as
+      | { id: string }
+      | undefined;
+    if (found) return found.id;
+    const id = ulid();
+    this.db
+      .prepare("INSERT INTO projects (id, slug, label, created_at) VALUES (?,?,?,?)")
+      .run(id, slug, label ?? null, new Date().toISOString());
+    return id;
+  }
+
+  async startSession(input: {
+    project: string;
+    externalId: string;
+    agent?: string;
+    task?: string;
+  }): Promise<string> {
+    const projectId = await this.ensureProject(input.project);
+    // Re-entering the same host session (SessionStart can fire more than once per session,
+    // e.g. on resume) must not fork it — the external id is the identity.
+    const existing = this.db
+      .prepare("SELECT external_id FROM sessions WHERE external_id=?")
+      .get(input.externalId) as { external_id: string } | undefined;
+    if (existing) {
+      this.db.prepare("UPDATE sessions SET ended_at=NULL WHERE external_id=?").run(input.externalId);
+      return existing.external_id;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, project_id, external_id, agent, task, started_at, ended_at)
+         VALUES (?,?,?,?,?,?,NULL)`,
+      )
+      .run(ulid(), projectId, input.externalId, input.agent ?? null, input.task ?? null, new Date().toISOString());
+    return input.externalId;
+  }
+
+  async endSession(externalId: string): Promise<void> {
+    this.db
+      .prepare("UPDATE sessions SET ended_at=? WHERE external_id=? AND ended_at IS NULL")
+      .run(new Date().toISOString(), externalId);
+  }
+
+  /**
+   * The most recently started still-open session for a project, as its external id.
+   *
+   * This is what lets a write from the MCP server — which cannot see the host session —
+   * stamp the REAL session id instead of a per-process `proc-<ulid>` proxy.
+   */
+  async resolveSessionId(project: string): Promise<string | null> {
+    const row = this.db
+      .prepare(
+        `SELECT s.external_id AS ext
+           FROM sessions s JOIN projects p ON p.id = s.project_id
+          WHERE p.slug = ? AND s.ended_at IS NULL AND s.external_id IS NOT NULL
+          ORDER BY s.started_at DESC, s.id DESC
+          LIMIT 1`,
+      )
+      .get(project) as { ext: string } | undefined;
+    return row?.ext ?? null;
   }
 
   async getNudgeCounts(project: string, sessionId: string | null): Promise<NudgeCounts> {

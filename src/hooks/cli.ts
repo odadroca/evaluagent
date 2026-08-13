@@ -31,6 +31,20 @@ export async function runHook(
     return { written: 0 };
   }
 
+  // Session lifecycle first: the row must exist before any write tries to resolve it.
+  const hostSession = event.session_id ?? null;
+  if (hostSession) {
+    try {
+      if (event.hook_event_name === "SessionStart") {
+        await service.startSession(project ?? "", hostSession);
+      } else if (event.hook_event_name === "SessionEnd") {
+        await service.endSession(hostSession);
+      }
+    } catch {
+      // observational: never propagate into the agent.
+    }
+  }
+
   let written = 0;
   for (const write of mapHookEvent(event)) {
     try {

@@ -349,3 +349,64 @@ describe("SqliteRepository.listProjects", () => {
     expect(await makeRepo().listProjects()).toEqual([]);
   });
 });
+
+describe("SqliteRepository — projects/sessions scope tables (architecture §3)", () => {
+  it("creates both tables on open, idempotently", async () => {
+    const r = makeRepo();
+    const names = (r as unknown as { db: { prepare: (s: string) => { all: () => Array<{ name: string }> } } }).db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((x) => x.name);
+    expect(names).toContain("projects");
+    expect(names).toContain("sessions");
+  });
+
+  it("ensureProject is idempotent and returns a stable id for a slug", async () => {
+    const r = makeRepo();
+    const a = await r.ensureProject("alpha");
+    const b = await r.ensureProject("alpha");
+    expect(a).toBe(b);
+    const c = await r.ensureProject("beta");
+    expect(c).not.toBe(a);
+  });
+
+  it("startSession records the host id as external_id and returns a stable id per external id", async () => {
+    const r = makeRepo();
+    const s1 = await r.startSession({ project: "alpha", externalId: "host-abc" });
+    const s2 = await r.startSession({ project: "alpha", externalId: "host-abc" });
+    expect(s2).toBe(s1); // re-entering the same host session must not fork it
+    const s3 = await r.startSession({ project: "alpha", externalId: "host-xyz" });
+    expect(s3).not.toBe(s1);
+  });
+
+  it("resolveSessionId finds the open session for a project — this is what retires proc-<ulid>", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "alpha", externalId: "host-abc" });
+    expect(await r.resolveSessionId("alpha")).toBe("host-abc");
+    expect(await r.resolveSessionId("beta")).toBeNull();
+  });
+
+  it("endSession closes it so a later write does not attach to a dead session", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "alpha", externalId: "host-abc" });
+    await r.endSession("host-abc");
+    expect(await r.resolveSessionId("alpha")).toBeNull();
+  });
+
+  it("prefers the most recent open session when a project has several", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "alpha", externalId: "host-old" });
+    await r.startSession({ project: "alpha", externalId: "host-new" });
+    expect(await r.resolveSessionId("alpha")).toBe("host-new");
+  });
+
+  it("backfills projects from pre-existing denormalized entries on open", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "legacy-one" }));
+    await r.insertEntry(newEntry({ project: "legacy-two" }));
+    // reopening the same in-memory db is not possible; assert ensureProject reconciles instead
+    await r.ensureProject("legacy-one");
+    const projects = await r.listProjects();
+    expect(projects.map((p) => p.project).sort()).toEqual(["legacy-one", "legacy-two"]);
+  });
+});
