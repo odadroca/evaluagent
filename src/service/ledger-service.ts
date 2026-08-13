@@ -1,5 +1,5 @@
 import type { EntrySource, LedgerEntry, LedgerQuery, RankMode, RecallResult } from "../domain/entry.js";
-import type { LedgerRepository, ProjectSummary } from "../repo/ledger-repository.js";
+import type { LedgerRepository, NudgeCounts, ProjectSummary } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
 import { isEntryKind, validatePayload } from "../domain/entry-kinds.js";
@@ -187,6 +187,16 @@ export class LedgerService {
   /** Every project with entry counts and freshness — the browse face for `projects_total`. */
   async listProjects(): Promise<ProjectSummary[]> {
     return this.repo.listProjects();
+  }
+
+  /** One-pass counts backing the hook bridge's nudge decision. */
+  async getNudgeCounts(project: string | undefined, sessionId: string | null): Promise<NudgeCounts> {
+    return this.repo.getNudgeCounts(project ?? this.defaultProject ?? "", sessionId);
+  }
+
+  /** Record that a nudge kind fired, so it fires at most once per session. */
+  async markNudged(project: string | undefined, sessionId: string | null, kind: string): Promise<void> {
+    return this.repo.markNudged(project ?? this.defaultProject ?? "", sessionId, kind);
   }
 
   /**

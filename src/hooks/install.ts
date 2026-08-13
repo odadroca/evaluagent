@@ -28,6 +28,7 @@ export function buildHooksSnippet(hookBin: string): HooksSnippet {
   return {
     hooks: {
       SessionStart: lifecycle(),
+      UserPromptSubmit: lifecycle(),
       PreToolUse: tool(),
       PostToolUse: tool(),
       PostToolUseFailure: tool(),

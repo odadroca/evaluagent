@@ -8,6 +8,29 @@ export interface ProjectSummary {
   lastWritten: string;
 }
 
+/**
+ * Counts the hook bridge needs to decide whether to nudge. Gathered in one pass.
+ *
+ * NOTE ON SESSION IDENTITY — the hook sees the real Claude Code `session_id`, but
+ * everything written through the MCP server (self-reports, recall events) is stamped
+ * with that server process's `proc-<ulid>` instead. The two never match: across the
+ * whole live corpus exactly one session id is shared between the sources. So only
+ * spine-derived counts may join on session; anything touching self-reports or recall
+ * events has to fall back to "recently, in this project". The real fix is the unbuilt
+ * `sessions.external_id` from the architecture doc.
+ */
+export interface NudgeCounts {
+  projectEntryCount: number;
+  /** self-reports written to this project recently — NOT session-joined; see note above. */
+  recentSelfReports: number;
+  /** spine tool invocations this session. Session-joined and reliable. */
+  sessionToolCalls: number;
+  /** spine retries in this session, time-bounded so it means "stuck now", not "ever". */
+  recentRetries: number;
+  recallFired: boolean;
+  alreadyNudged: string[];
+}
+
 /** Identifies a specific tool invocation across separate hook processes. */
 export interface SpineMatch {
   project: string;
@@ -41,6 +64,10 @@ export interface LedgerRepository {
    * Without this, `countProjects` only tells a caller how much it cannot see.
    */
   listProjects(): Promise<ProjectSummary[]>;
+  /** One-pass counts for the hook bridge's nudge decision (runs per tool call — keep it cheap). */
+  getNudgeCounts(project: string, sessionId: string | null): Promise<NudgeCounts>;
+  /** Remember that a nudge kind fired this session, so it fires at most once. */
+  markNudged(project: string, sessionId: string | null, kind: string): Promise<void>;
   /** Map of entry id → ids of self_report entries whose ref_entry_id points at it. */
   findReferrers(ids: string[]): Promise<Record<string, string[]>>;
   close(): Promise<void>;

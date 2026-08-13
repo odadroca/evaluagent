@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { runHook } from "./cli.js";
+import { hookOutput, runHook } from "./cli.js";
 import { LedgerService } from "../service/ledger-service.js";
 import { SqliteRepository } from "../repo/sqlite/sqlite-repository.js";
 
@@ -54,5 +54,100 @@ describe("runHook", () => {
     expect(res.written).toBe(1);
     const out = await s.recall({ source: "hook_spine" });
     expect(out.entries[0]!.kind).toBe("spine_lifecycle");
+  });
+});
+
+describe("runHook — nudge integration (real repo, real counts)", () => {
+  async function svcWith(entries: Array<Record<string, unknown>> = []) {
+    const repo = new SqliteRepository(":memory:");
+    const service = new LedgerService({ repo, defaultProject: "proj" });
+    for (const e of entries) {
+      await service.record({
+        kind: "surprise",
+        title: "seed",
+        body: "seed",
+        payload: { expected: "a", actual: "b", magnitude: 1 },
+        ...e,
+      } as never);
+    }
+    return { repo, service };
+  }
+
+  const pre = (sessionId: string) =>
+    JSON.stringify({
+      hook_event_name: "PreToolUse",
+      session_id: sessionId,
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+
+  it("emits the gate on a WARM project and marks it so it fires once", async () => {
+    const { repo, service } = await svcWith([{ project: "proj" }]);
+    const first = await runHook(pre("s1"), service, "proj");
+    expect(first.nudge?.kind).toBe("gate");
+    expect(hookOutput("PreToolUse", first)).toContain("additionalContext");
+
+    const second = await runHook(pre("s1"), service, "proj");
+    expect(second.nudge).toBeUndefined();
+    await repo.close();
+  });
+
+  it("stays silent on a COLD project — no entries means no gate ceremony", async () => {
+    const { repo, service } = await svcWith();
+    const r = await runHook(pre("s1"), service, "proj");
+    expect(r.nudge).toBeUndefined();
+    expect(hookOutput("PreToolUse", r)).toBeNull();
+    await repo.close();
+  });
+
+  it("stays silent after a recent recall in the project", async () => {
+    // NB: recall_events carries the MCP server's proc-<ulid>, never the host session id,
+    // so suppression must work off project recency rather than a session join.
+    const { repo, service } = await svcWith([{ project: "proj" }]);
+    await service.recall({ project: "proj" });
+    const r = await runHook(pre("s2"), service, "proj");
+    expect(r.nudge).toBeUndefined();
+    await repo.close();
+  });
+
+  it("still writes the spine entry even when it emits a nudge", async () => {
+    const { repo, service } = await svcWith([{ project: "proj" }]);
+    const r = await runHook(pre("s3"), service, "proj");
+    expect(r.written).toBeGreaterThan(0);
+    expect(r.nudge).toBeTruthy();
+    await repo.close();
+  });
+
+  it("never throws and emits nothing on malformed input", async () => {
+    const { repo, service } = await svcWith([{ project: "proj" }]);
+    const r = await runHook("{not json", service, "proj");
+    expect(r).toEqual({ written: 0 });
+    expect(hookOutput("PreToolUse", r)).toBeNull();
+    await repo.close();
+  });
+
+  it("stays silent when the payload carries no session id — fire-once would be impossible", async () => {
+    const { repo, service } = await svcWith([{ project: "proj" }]);
+    const noSession = JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+    for (let i = 0; i < 3; i++) {
+      const r = await runHook(noSession, service, "proj");
+      expect(r.nudge, "a sessionless payload must never nudge — it would repeat forever").toBeUndefined();
+    }
+    await repo.close();
+  });
+
+  it("does not nudge on events where injection is unsupported (Stop)", async () => {
+    const { repo, service } = await svcWith([{ project: "proj" }]);
+    const r = await runHook(
+      JSON.stringify({ hook_event_name: "Stop", session_id: "s4" }),
+      service,
+      "proj",
+    );
+    expect(r.nudge).toBeUndefined();
+    await repo.close();
   });
 });

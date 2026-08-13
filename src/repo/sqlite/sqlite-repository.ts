@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
 import type { AnyKind, Candidate, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
 import type { NewRecallEvent, RecallEvent } from "../../domain/recall-event.js";
-import type { LedgerRepository, ProjectSummary, SpineMatch } from "../ledger-repository.js";
+import type { LedgerRepository, NudgeCounts, ProjectSummary, SpineMatch } from "../ledger-repository.js";
 import { clampLimit } from "../../domain/limits.js";
 
 // Monotonic so ids are strictly increasing even within the same millisecond —
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE INDEX IF NOT EXISTS idx_entries_project_created ON entries(project, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_project_kind   ON entries(project, kind, id DESC);
 CREATE INDEX IF NOT EXISTS idx_entries_session        ON entries(session_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_entries_project_source ON entries(project, source, id DESC);
 CREATE TABLE IF NOT EXISTS recall_events (
   id           TEXT PRIMARY KEY,
   project      TEXT NOT NULL,
@@ -145,6 +146,13 @@ function buildMatchExpr(text: string | undefined): string | null {
 }
 
 const SEARCH_POOL = 200;
+
+/** How recently a recall in this project counts as "already recalled this session". */
+const RECALL_RECENCY_MS = 15 * 60 * 1000;
+/** Window for "has this project seen a self-report lately" (journal-nudge suppression). */
+const ACTIVITY_WINDOW_MS = 90 * 60 * 1000;
+/** Window over which repeated identical tool calls mean "stuck right now". */
+const RETRY_WINDOW_MS = 10 * 60 * 1000;
 
 export class SqliteRepository implements LedgerRepository {
   private readonly db: Database.Database;
@@ -374,6 +382,95 @@ export class SqliteRepository implements LedgerRepository {
       entries: r.entries,
       lastWritten: r.last_written,
     }));
+  }
+
+  async getNudgeCounts(project: string, sessionId: string | null): Promise<NudgeCounts> {
+    const one = (sql: string, ...params: unknown[]): number =>
+      (this.db.prepare(sql).get(...params) as { c: number }).c;
+    const since = (ms: number): string => new Date(Date.now() - ms).toISOString();
+
+    const projectEntryCount = one(
+      "SELECT COUNT(*) c FROM entries WHERE source='self_report' AND project=?",
+      project,
+    );
+
+    // Self-reports carry the MCP server's proc-<ulid>, never this session id, so this
+    // is deliberately a project+recency proxy rather than a session join (see NudgeCounts).
+    const recentSelfReports = one(
+      "SELECT COUNT(*) c FROM entries WHERE source='self_report' AND project=? AND created_at > ?",
+      project,
+      since(ACTIVITY_WINDOW_MS),
+    );
+
+    // Same mismatch: recall_events is written by the server process. Session first (in case
+    // a caller ever passes a real id), then the project-recency fallback that actually fires.
+    const recallFired =
+      (sessionId
+        ? one("SELECT COUNT(*) c FROM recall_events WHERE session_id=?", sessionId)
+        : 0) > 0 ||
+      one(
+        "SELECT COUNT(*) c FROM recall_events WHERE project=? AND created_at > ?",
+        project,
+        since(RECALL_RECENCY_MS),
+      ) > 0;
+
+    // Spine rows DO carry the host session id, so these two are genuine session counts.
+    const sessionToolCalls = sessionId
+      ? one(
+          `SELECT COUNT(*) c FROM entries
+            WHERE source='hook_spine' AND kind='spine_tool' AND session_id=?
+              AND json_extract(payload,'$.phase')='pre'`,
+          sessionId,
+        )
+      : 0;
+
+    // Time-bounded on purpose: an unbounded session count treats two `git status` calls an
+    // hour apart as evidence of being stuck, which false-positives on any normal TDD loop.
+    const recentRetries = sessionId
+      ? one(
+          `SELECT COUNT(*) c FROM entries
+            WHERE source='hook_spine' AND session_id=? AND created_at > ?
+              AND json_extract(payload,'$.retry_of') IS NOT NULL`,
+          sessionId,
+          since(RETRY_WINDOW_MS),
+        )
+      : 0;
+
+    // Scoped by project as well as session: at user scope the hook resolves the project
+    // from the cwd basename, so one session can legitimately span two corpora.
+    const alreadyNudged = sessionId
+      ? (
+          this.db
+            .prepare(
+              `SELECT title FROM entries
+                WHERE source='hook_spine' AND kind='spine_lifecycle'
+                  AND session_id=? AND project=? AND title LIKE 'nudge:%'`,
+            )
+            .all(sessionId, project) as Array<{ title: string }>
+        ).map((r) => r.title.slice("nudge:".length))
+      : [];
+
+    return {
+      projectEntryCount,
+      recentSelfReports,
+      sessionToolCalls,
+      recentRetries,
+      recallFired,
+      alreadyNudged,
+    };
+  }
+
+  async markNudged(project: string, sessionId: string | null, kind: string): Promise<void> {
+    if (!sessionId) return; // no session ⇒ no fire-once bookkeeping is possible
+    await this.insertEntry({
+      kind: "spine_lifecycle" as AnyKind,
+      project,
+      title: `nudge:${kind}`,
+      body: "",
+      payload: { event: "nudge", reason: kind },
+      source: "hook_spine",
+      sessionId,
+    });
   }
 
   async findReferrers(ids: string[]): Promise<Record<string, string[]>> {

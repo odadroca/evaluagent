@@ -14,7 +14,15 @@ describe("buildHooksSnippet", () => {
       "SessionEnd",
       "SessionStart",
       "Stop",
+      "UserPromptSubmit",
     ]);
+  });
+
+  it("registers UserPromptSubmit — without it the journal nudge can never fire", () => {
+    // Regression: the nudge shipped wired only in a hand-edited settings.json, so anyone
+    // installing from this snippet got a nudge path that was silently dead.
+    expect(hooks.UserPromptSubmit).toBeDefined();
+    expect(hooks.UserPromptSubmit![0]!.hooks[0]!.args).toEqual([HOOK_BIN]);
   });
 
   it("uses exec-form args (no shell tokenization) so a path with spaces is safe", () => {
