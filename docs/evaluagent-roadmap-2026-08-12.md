@@ -1,0 +1,307 @@
+# evaluagent — next sprints, filtered by confirmed utilization
+
+> **Date:** 2026-08-12
+> **Inputs:** three field reports from live use in other projects; the T2/T3 measurement
+> ([`evaluagent-T2-measurement-2026-08-12.md`](./evaluagent-T2-measurement-2026-08-12.md), 80
+> recall events / 9 days); prior roadmap decisions carried in the ledger; the owner's
+> 2026-08-12 decision that the corpus is **per-user global with `project` as a facet**.
+>
+> **Method:** every field-report claim was re-tested against the live DB or the source before being
+> accepted. Items the data contradicts are demoted here with the evidence, not carried forward out
+> of politeness. Sprint boundaries follow a constraint the field reports could not see — see §0.
+
+---
+
+## 0. Two constraints that set the shape
+
+**0.1 Hook changes are free; server changes cost a restart.** Established in `01KWC2A95Y…`: the MCP
+server does not hot-reload (config points at `dist/`, so a change also needs `npm run build`), while
+`.claude/settings*.json` hooks do. Every read-path change — scope, verbosity, new tools, validation
+messages — is server-side and must therefore be **bundled into one build+restart**. Gate/hook fixes
+ship independently and immediately.
+
+This is why the sprints below are not ordered purely by severity: *Sprint 1 is a bundle because
+it has to be one*, and the hook fixes ride alongside at zero marginal cost.
+
+**0.2 The binding constraint is corpus composition, not retrieval.**
+
+> **Scope correction (owner, 2026-08-12, after this document's first draft).** Earlier drafts framed
+> the open problem as *intervening at the moment the lesson applies*. That imported a goal evaluagent
+> never had. The stated intent is: **record what usually goes unrecorded — to defeat survivor's bias
+> — and improve collaboration.** Behaviour change is a hoped-for second-order effect, not the
+> deliverable. The recurrence-conditioned-on-recall north-star measured the wrong thing.
+
+Re-measured against the actual intent, the corpus composition is **inverted relative to its purpose**:
+
+| Kind | n | % | Already captured elsewhere? |
+|---|---|---|---|
+| `confidence` | 110 | **41.5%** | Yes — commits, PR bodies, plan files |
+| `surprise` | 108 | 40.8% | Rarely |
+| `friction` | 22 | 8.3% | No |
+| `dead_end` | 12 | 4.5% | No |
+| `reconstruction` | 9 | 3.4% | No |
+| `abandoned_branch` | **4** | **1.5%** | Never |
+
+The kinds that exist specifically to defeat survivor's bias total **16 of 265 entries**. The largest
+slice is decisions — the one category that survives in other artifacts anyway.
+
+**Why this is a timing problem.** Mean position of each kind within its session (0 = start, 1 = end):
+`surprise` 0.32 · `confidence` 0.61 · `friction` 0.64 · `dead_end` 0.77 · `reconstruction` 0.89 ·
+`abandoned_branch` 1.00. A surprise is punctual — noticed and written. An abandoned branch is only
+recognisable retrospectively, by which point the session is closing and **nothing asks**. Hence n=4.
+(Writes are not batched: median gap between consecutive entries is 73 min, 3 of 45 gaps under 2 min.)
+
+**The enforcement asymmetry.** Recall is hook-enforced; recording is not enforced at all — backwards
+for a tool whose purpose is capture. And 41% of the enforced recalls fire against an empty corpus, so
+the entire enforcement budget is spent on the secondary path, often on nothing.
+
+**Consequence for this roadmap: Sprints 1–4 below are mostly read-path work and are therefore
+secondary.** They remain correct as written and the silent-failure fixes in Sprint 1 are worth doing.
+But the cheapest work with the highest purpose-alignment is three hook edits (no rebuild, no restart)
+— see Sprint 0. Do those first and let the measurement decide whether the server sprints are funded.
+
+---
+
+## 1. What utilization confirms, and what it refutes
+
+### Confirmed — build on these
+
+| Observation | Figure | Consequence |
+|---|---|---|
+| Cross-session retrieval is the normal case | 41 of 47 non-empty recalls | Read path works; don't rebuild it |
+| Cold-project empties | 33 of 80 (41%) | Global default converts most of this to signal |
+| Salience is saturated | 91% at s2/s3; post-epoch s0 = 0 | `w_sal` is near-constant — a dead ranking term |
+| Context cost per recall | mean body 1,604 B; ~20 KB per 10-entry recall | Paid on **every** planning turn, gate-enforced |
+| Silent unknown-project | `project:"*"` → 0, four times | 3 observed false claims caused by it (2 theirs, 1 mine) |
+| Spine is unconsumed | 1,411 of 1,413 rows in one project; `source:"hook_spine"` never queried | Either wire it or cut it — currently pure write cost |
+| Name fragmentation | ~4 slug families + 2 case/prefix twins | Worse than the single `.SAP-move` case reported |
+| Behaviour change | 3/3 recurrences post-recall | Unproven; see §0.2 |
+
+### Refuted or demoted — do not carry these forward
+
+**Embeddings are not yet earned (field report iii raises them to High/P2 — demote to P3, gated).**
+Observed query mix: **48 of 71 text queries (68%) carry an identifier-like token** — system object
+names, ticket IDs, API symbol names. That is precisely the case the same report concedes FTS
+handles better than semantics. In nine days of real use, **not one query** exhibited the
+vocabulary-mismatch shape ("how do I safely relocate a synced folder…") that motivates the
+investment. The report's own proposed experiment is the right gate: generate paraphrased queries
+sharing no content words, measure recall@5. Run the experiment; buy the infrastructure only if it
+collapses. It is a regression test either way.
+
+**Schema friction is not distorting the corpus (field report iii, Finding C's prediction).** The
+prediction was that `surprise` over-representation grows with session busyness. Over-representation
+is real (Aug: surprise 52 / confidence 21, reversed from Jun's 57 / 22) but the gradient **inverts**:
+61.8% surprise in 1–2-entry sessions, 55.2% at 3–4, **46.8% at 5+**. Busier sessions produce *less*
+surprise. The August shift is better explained by the day-40 discipline change. Recorded as
+`01KZV812JQ…`. Finding C stays — the validator defect is confirmed at source — but as an
+author-experience and data-quality defect, not a corpus-integrity emergency, and the surprise share
+must not be cited as its evidence.
+
+**Scratch projects are not diluting the corpus.** 45 of 46 projects hold self-reports. The dilution
+is *fragmentation* (same work under several slugs), not proliferation.
+
+**`match` is not "not strict" (field report i).** It is strict — `hybrid-ranker.ts:47` returns only
+FTS-matched rows with no recency padding. The cause is that `buildMatchExpr`
+(`sqlite-repository.ts:137-145`) joins terms with **OR**, so one common token qualifies an entry.
+This inverts the conclusion: an *empty* `match` **does** prove absence; a *non-empty* one proves
+nothing about the concept. The reporter's actual need was an identity lookup, which no tool provides
+— see `get_entry` in Sprint 1.
+
+---
+
+## Sprint 0 — Fix the timing *(hooks only: no build, no restart, hours)*
+
+**Goal:** move the enforcement budget from the secondary path (read) to the primary one (write), and
+shift corpus composition toward the scarce kinds. Everything here hot-reloads.
+
+1. **Suppress cold-project recall.** The gate hook queries entry count for the resolved scope and
+   skips injection at zero. Removes ~41% of current ceremony at a stroke.
+2. **Move the recall gate to first substantive tool use**, off plan-mode transitions. A session that
+   *starts* in plan mode never fires `EnterPlanMode` (observed twice), and `ExitPlanMode` fires after
+   the derivation it was meant to precede.
+3. **Add a kind-specific record prompt at `Stop`.** Not *"anything worth journaling?"* — that yields
+   more `confidence`, the abundant kind. Name the scarce one: **"what did you abandon, and why?"**
+   For `abandoned_branch` and `dead_end`, end-of-session is the *correct* timing, because abandonment
+   is only knowable retrospectively. The defect is that nothing asks, not that it asks late. Works in
+   every project; no spine dependency.
+
+**Why a kind-specific prompt matters.** When an agent decides to record, the kinds compete for one
+moment and the cheapest wins — `confidence` demands no admission of failure. Field report (iii)
+documents the extreme case: an agent downgraded a friction entry to `surprise` because the validator
+fought back. A generic nudge will be answered with the abundant kind.
+
+**Measurement — the corrected north-star.** Share of corpus in the scarce kinds
+(`friction` + `dead_end` + `reconstruction` + `abandoned_branch`). **Baseline today: 17.7%.**
+One query, a clean historical series already in the DB, and falsifiable within two weeks — unlike
+recurrence, which needs months. Precedent that composition responds to prompting: June was
+`confidence` 57 / `surprise` 22; August is `surprise` 52 / `confidence` 21, achieved by discipline
+alone with no mechanism change.
+
+**Decision gate:** if two weeks of Sprint 0 does not move composition, the server sprints below are
+unlikely to either — they address retrieval, which is already working.
+
+---
+
+## Sprint 1 — Stop failing quietly *(one server bundle + free hook fixes)*
+
+**Goal:** every current silent failure becomes loud, and the facet decision ships in a form that
+doesn't make the tool feel worse.
+
+### 1a. Server bundle — all of this in ONE `npm run build` + restart
+
+| Change | Justification |
+|---|---|
+| **Global default scope**; `scope: "all" \| "project"` | Owner decision. Converts most of the 41% cold-empty rate into signal. |
+| **`project` as a ranking BOOST, not a filter** | Field report Part 0.1, and correct: a binary is what created the problem. Keep `scope:"project"` as an explicit escape hatch. |
+| **Error on unknown project** / `unknown_project: true` | Three observed false claims from `"*"` silently returning 0. |
+| **`verbosity: "titles" \| "summary" \| "full"`**, default not-full | 20 KB per 10-entry recall, on every gate-enforced planning turn. **Must ship with the scope change** — global recall returning 20 full bodies will read as a regression. |
+| **`list_projects(name, entry_count, last_written, top_tags)`** | The facet is unusable as a filter if names are undiscoverable. |
+| **`get_entry(entry_id)`** ← *not in any field report* | The strongest single argument in the set: a reporter held the exact ULID of a "lost" entry for **8 days** with no way to spend it. I resolved it in one SQL query — it was in `vidaprofissional`, not `Jobs`. Cheapest item here; it makes the corpus self-recoverable. |
+| **Enumerate permitted values in validation errors** | `FrictionPayload.kind` is `Type.Union([Type.Literal…])` → Ajv `anyOf`+`const` → *"must be equal to constant"* ×4, values never named (`entry-kinds.ts:92-97`; same for `Level` at line 31). ~10 lines in `validatePayload`. |
+
+**Acceptance:** replay the three reported failure transcripts. `project:"*"` errors; a friction
+payload with a bad `kind` names the four permitted values; the 8-day-lost entry is retrievable by id
+from any project.
+
+### 1b. Hook fixes — ship immediately, no restart
+
+Per field report (ii), all three findings confirmed against `~/.claude/settings.json` — every gate
+hook emits `additionalContext` only, none uses `permissionDecision`:
+
+1. **Fire on first substantive tool use**, not on plan-mode transitions. A session that *starts* in
+   plan mode never calls `EnterPlanMode` — this recurred in the session that produced this document.
+2. **Deny rather than inject** (`permissionDecision: "deny"`) so `ExitPlanMode` fails and must be
+   retried after recall. Today the approval arrives in the same round-trip as the instruction, which
+   makes the instruction unsatisfiable when read.
+3. **Verify from the transcript** instead of asking for self-attestation. Note this needs the spine
+   or transcript access — see Sprint 3, which is the same dependency.
+
+---
+
+## Sprint 2 — Make "useful" observable, and separate correction from deletion
+
+**Goal:** produce the signal every later ranking decision depends on. Nothing downstream is
+trustworthy without it.
+
+- **A use signal.** Field report Finding I. Constraint from `01KWBWTQ1P…`: increment on
+  **confirmed-useful only, never on "returned"** — otherwise it is a popularity counter and the
+  rich-get-richer failure mode entrenches wrong-but-frequent entries. Constraint from field report §7
+  and the T2 data: a self-reported flag has yes-bias. Prefer the behavioural signal (a later write in
+  the same session references the entry) with an explicit `mark_useful` as a secondary channel.
+- **Relation types on the link** — `supersedes | refines | extracts_from | relates_to`, with only
+  `supersedes` driving the staleness signal. This does triple duty: it fixes field report §5 (a
+  reporter omitted a real link because setting `ref_entry_id` would have wrongly marked a valid entry
+  stale), it disambiguates the use signal above, and it resolves the column overloading recorded in
+  `01KZ28ESP0…` — a hazard I re-introduced into my own analysis code this week despite having read
+  the entry warning about it.
+- **Metadata correction** (`kind`, `tags`, `salience`), body/payload still append-only.
+
+> **Roadmap correction worth stating explicitly.** `REASONING-LEDGER-PLAN.md` §5/§7 sequenced
+> deletion first; `01KWBWTQ1P…` revised it to deletion-last. Both treated "editing" as one thing. The
+> field reports separate it correctly: **clerical correction** (a mistyped `kind`, permanently wrong
+> because the validator was opaque) is not **pruning** (removing a stale lesson). Correction is safe,
+> cheap, and belongs here. Pruning stays last, unchanged.
+
+---
+
+## Sprint 3 — Attack the north star *(the sprint no existing plan contains)*
+
+**Goal:** move from "the right entry was returned" to "the lesson landed when it mattered". This is
+the value hypothesis. See §0.2.
+
+- **Wire the hook spine in 1–2 active ticket projects for two weeks.** One change, three payoffs:
+  it makes gate *placement* testable (currently observable on 2 of 80 events); it gives Sprint 1b's
+  deny-hook something to verify against; and it settles whether the spine is under-exposed or dead
+  weight (1,411 of 1,413 rows sit in one project and no consumer has ever queried it).
+- **Context-triggered retrieval, prototype.** Field report §2 names this the highest-leverage open
+  problem and the T2 recurrence data backs it: session-start recall structurally cannot intervene
+  where the error occurs — mid-task, at the moment of writing a claim. A `PreToolUse` tag/shape match
+  that surfaces the lesson at that moment is the natural vehicle, and hooks need no restart.
+- **Write-time near-duplicate detection.** Filed as "minor" in field report iii; on this data it is
+  not minor. A write-time *"this is 0.9 similar to X — supersede it?"* prompt is a direct
+  intervention on the 3-of-3 recurrence result, and it is where the judgement is cheapest. Promote.
+- **Re-run the T2 script** (`scratchpad/t2-analysis.mjs`) in the 08-17…31 window, now conditioning
+  recurrence on the Sprint 2 use signal rather than on supersessions alone.
+
+---
+
+## Sprint 4 — Precision, only once earned
+
+- **Run the paraphrase experiment first.** 3 paraphrased queries per entry sharing no content words
+  with the title; measure recall@5 under current `hybrid`. Quantified baseline and regression test.
+- **Use-earned salience** replaces author-assigned, per `01KWBWTQ1P…`, now unblocked by Sprint 2.
+  Do **not** ship calibration anchors as the fix — the data says authors saturate the scale
+  regardless of guidance (91% at s2/s3 across 264 entries, three different reporting agents).
+  Keep the salience-gated fade constraint: rare-but-vital lessons must not decay fastest.
+- **Stable project identity** (marker file) + `rename`/`merge` to collapse the ~4 slug families.
+  Under a global default this is a labelling and boost-accuracy defect, not data loss — so it lands
+  here, not earlier. The three `.SAP-move` entries are the regression corpus.
+- **Embeddings as a fifth hybrid signal — only if the paraphrase experiment collapses.** Never as an
+  FTS replacement: 68% of real queries are identifier-bearing, where lexical is correct and semantic
+  is noise.
+
+---
+
+---
+
+## Alignment with the original plan *(added after reading the spec docs)*
+
+Most of what the field reports raise is **unbuilt planned surface, not new scope**. From
+`REASONING-LEDGER-ARCHITECTURE.md` §7: **2 of 6 planned tools** and **0 of 5 planned MCP
+resources** exist.
+
+| Field-report finding | Actually is | Status |
+|---|---|---|
+| E — `list_projects` | planned `ledger://projects` resource | never built |
+| *(mine)* `get_entry` | planned `ledger_get` tool | **`getEntry(id)` implemented, unexposed** |
+| F — delete/retype | plan §5 Phase 7 named it the prerequisite for consolidation pruning | never built |
+| A — project identity | plan §7 open question: "allow `RLX_PROJECT` / a marker file" | never resolved |
+| Sprint 0 Stop-nudge | plan §7's **named top product risk**, with this exact mechanism | deferred at spec stage |
+
+**Two divergences from the locked design, one of them causal:**
+
+1. **`projects` and `sessions` were specified as tables and shipped denormalized.** The spec has
+   `projects(id, slug UNIQUE, label, …)` and `sessions(id, project_id, external_id, …)` where
+   `external_id` is *"the join key that lands hook-spine and self-report in the same session."*
+   What exists is `project TEXT` / `session_id TEXT` on `entries`. The slug fragmentation, the
+   absent project listing, and `session_id` NULL at 87% (patched with a `proc-<ulid>` stamp that
+   identifies a *process*) all follow from that one drop. **Sprint 4's identity work is therefore
+   implementing the written schema, not designing anything.**
+2. **`@llm-pipe/core` is imported nowhere**, so the locked "sibling on Calane" decision is
+   unimplemented — and with it the `redactSecrets` / `TelemetrySink` reuse that Phase 4 was to
+   stand on. Close it or retire it explicitly.
+
+**Effort revision.** `ledger_get` + `list_projects` drop to **~half a day** (`getEntry` and
+`countProjects` already exist) and should move into Sprint 0's slot as the cheapest fix for the
+most-reported pain — the 8-day-lost entry was retrievable the whole time.
+
+### Deferred phases — the unlock conditions, named
+
+| Phase | Gate |
+|---|---|
+| 4 — REST + `openai-tools.json`, OTel mirror | a non-MCP caller actually exists |
+| 6 — Postgres + pgvector, `SemanticRanker` | the paraphrase recall@5 experiment collapses |
+| **Hosting (Render)** | **a second device/agent needs the corpus, *or* a consolidation pass must run without a local session** |
+
+Hosting is *not* unlocked by usage volume. 51 days of data are single-user, single-machine; no
+multi-client need has appeared, and consolidation has been run manually and worked. Hosting would
+also put the authoritative store on the network on a path the gate hits every planning turn,
+against architecture invariant #1 (*store-first, never lossy*). **Separately and independently of
+usage: the corpus contains real client material** (SAPSUP ticket numbers, named customers,
+customer-facing root causes). Hosting it is a data-governance decision requiring the unbuilt
+`redactSecrets` boundary — not a deployment step.
+
+---
+
+## Open questions for the owner
+
+1. **Spine: wire broadly or cut?** It is currently 1,411 rows of pure write cost with no consumer.
+   Sprint 3 proposes a two-week scoped trial to decide on evidence rather than intuition.
+2. **Does the deny-gate risk being disabled in practice?** A hard block on `ExitPlanMode` is the
+   correct enforcement, but if it becomes an obstacle it will get switched off, and a disabled gate
+   measures nothing. Worth deciding the escape hatch deliberately now.
+3. **Is `kind` meant to be analysed?** Field report iii asks this and it is the right question. If
+   yes, Sprint 2's correction tool is load-bearing (the taxonomy already contains at least one
+   knowingly-mistyped entry). If `kind` is only a writing prompt, relax payload validation instead.
+4. **Merge or alias for the slug families?** Re-pointing loses the historical fact that the work
+   happened elsewhere; aliasing keeps it at the cost of permanent indirection.
