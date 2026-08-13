@@ -15,10 +15,16 @@ yourself evaluating evaluagent by "did recall stop a repeated mistake", you are 
 yardstick and will reach an unfairly negative verdict.
 
 - **North-star metric: corpus composition** — share of entries in the scarce kinds
-  (`friction` + `dead_end` + `reconstruction` + `abandoned_branch`). **Baseline 17.7%**
-  (2026-08-12, n=265). One query; falsifiable in ~2 weeks. This *replaces* recurrence-conditioned-
-  on-recall, which needs months and answers a question nobody asked.
+  (`friction` + `dead_end` + `reconstruction` + `abandoned_branch`). **Baseline 18.1%**
+  (2026-08-13, n=271). Measure over a rolling **100-entry window**, never per-day: throughput swings
+  1–22 entries/day. This *replaces* recurrence-conditioned-on-recall, which needs months and answers
+  a question nobody asked.
 - The write path is the product. The read path is support for it.
+- **Adding scarce entries does not move the metric — converting does.** Measured 2026-08-13: the
+  review session that *discovered* the composition problem then wrote 11 entries at 18.2% scarce,
+  i.e. exactly baseline, because its 2 scarce entries came alongside 9 abundant ones. A ratio moves
+  when a `surprise` that is really a `dead_end` gets written as one, not when a nudge appends more
+  at the end. Prefer interventions that fire **before the write**.
 
 ## Capture discipline (the composition problem, and how to not cause it)
 

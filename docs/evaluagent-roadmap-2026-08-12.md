@@ -14,14 +14,21 @@
 
 ## 0. Two constraints that set the shape
 
-**0.1 Hook changes are free; server changes cost a restart.** Established in `01KWC2A95Y…`: the MCP
-server does not hot-reload (config points at `dist/`, so a change also needs `npm run build`), while
-`.claude/settings*.json` hooks do. Every read-path change — scope, verbosity, new tools, validation
-messages — is server-side and must therefore be **bundled into one build+restart**. Gate/hook fixes
-ship independently and immediately.
+**0.1 Three deployment tiers, not two** *(refined 2026-08-13)*. Established in `01KWC2A95Y…` and
+sharpened by checking how hooks are actually invoked:
 
-This is why the sprints below are not ordered purely by severity: *Sprint 1 is a bundle because
-it has to be one*, and the hook fixes ride alongside at zero marginal cost.
+| Change | Needs `npm run build`? | Needs `claude -c` restart? |
+|---|---|---|
+| Hook **wiring** (`.claude/settings*.json`) | no | no — hot-reloads |
+| Hook **code** (`dist/bin/ledger-hook.js`) | **yes** | **no** — a fresh process spawns per event |
+| **MCP server** (`tools.ts`, `server.ts`, service, repo) | **yes** | **yes** — long-lived process |
+
+So the cheapest tier is not "hooks" as a whole: settings-only edits are free, hook code costs a
+build, and only server changes cost a restart. Every read-path change — scope, verbosity, new tools,
+validation messages — is bottom-tier and must be **bundled into one build+restart**.
+
+This is why the sprints below are not ordered purely by severity: *Sprint 1 is a bundle because it
+has to be one*, and the cheaper tiers ship ahead of it independently.
 
 **0.2 The binding constraint is corpus composition, not retrieval.**
 
@@ -109,36 +116,78 @@ nothing about the concept. The reporter's actual need was an identity lookup, wh
 
 ---
 
-## Sprint 0 — Fix the timing *(hooks only: no build, no restart, hours)*
+## Sprint 0 — Fix the timing *(revised 2026-08-13 after measuring)*
 
 **Goal:** move the enforcement budget from the secondary path (read) to the primary one (write), and
-shift corpus composition toward the scarce kinds. Everything here hot-reloads.
+shift corpus composition toward the scarce kinds.
 
-1. **Suppress cold-project recall.** The gate hook queries entry count for the resolved scope and
-   skips injection at zero. Removes ~41% of current ceremony at a stroke.
-2. **Move the recall gate to first substantive tool use**, off plan-mode transitions. A session that
-   *starts* in plan mode never fires `EnterPlanMode` (observed twice), and `ExitPlanMode` fires after
-   the derivation it was meant to precede.
-3. **Add a kind-specific record prompt at `Stop`.** Not *"anything worth journaling?"* — that yields
-   more `confidence`, the abundant kind. Name the scarce one: **"what did you abandon, and why?"**
-   For `abandoned_branch` and `dead_end`, end-of-session is the *correct* timing, because abandonment
-   is only knowable retrospectively. The defect is that nothing asks, not that it asks late. Works in
-   every project; no spine dependency.
+### The finding that reshaped this sprint: adding ≠ converting
 
-**Why a kind-specific prompt matters.** When an agent decides to record, the kinds compete for one
-moment and the cheapest wins — `confidence` demands no admission of failure. Field report (iii)
-documents the extreme case: an agent downgraded a friction entry to `surprise` because the validator
-fought back. A generic nudge will be answered with the abundant kind.
+The 2026-08-12 review session ended with a *manual* version of the planned nudge — the owner asked
+"aren't today's lessons worth recording?" — which produced one `dead_end` and one
+`abandoned_branch`, taking `abandoned_branch` from 4 entries to 5. That was reported as the nudge
+working. **Measured the next day, it wasn't:**
 
-**Measurement — the corrected north-star.** Share of corpus in the scarce kinds
-(`friction` + `dead_end` + `reconstruction` + `abandoned_branch`). **Baseline today: 17.7%.**
-One query, a clean historical series already in the DB, and falsifiable within two weeks — unlike
-recurrence, which needs months. Precedent that composition responds to prompting: June was
-`confidence` 57 / `surprise` 22; August is `surprise` 52 / `confidence` 21, achieved by discipline
-alone with no mechanism change.
+| Slice | Total | Scarce | Share |
+|---|---|---|---|
+| Pre-review baseline (< 2026-08-12 12:00) | 260 | 47 | **18.1%** |
+| Written during the review session | 11 | 2 | **18.2%** |
+| Corpus after | 271 | 49 | **18.1%** |
 
-**Decision gate:** if two weeks of Sprint 0 does not move composition, the server sprints below are
-unlikely to either — they address retrieval, which is already working.
+The session also produced nine abundant-kind entries, landing at exactly the baseline ratio.
+**Composition is a ratio: an end-of-session nudge that *adds* scarce entries cannot move it while
+the session keeps producing abundant ones at the same rate.** The nudge is additive; the metric
+needs *conversion* — catching the `surprise` that is really a `dead_end` at the moment of writing.
+That is where the 27 mislabelled entries live, and it reorders this sprint.
+
+### 0a — Stop-hook nudge *(minutes; settings only, no build, no restart)*
+
+Not *"anything worth journaling?"* — that yields more `confidence`. Name the scarce kind:
+**"what did you abandon, and why?"** For `abandoned_branch` and `dead_end` end-of-session is the
+*correct* timing, since abandonment is only knowable retrospectively; the defect is that nothing
+asks, not that it asks late. Works in every project, no spine dependency. Additive only — ship it
+because it is nearly free, not because it will move the ratio.
+
+### 0b — The conversion bundle *(half a day; one build + restart)* ← **the leverage**
+
+- **`ledger_get`** — expose the already-implemented `getEntry(id)`. Makes the corpus
+  self-recoverable; an 8-day-lost entry was retrievable the whole time.
+- **`list_projects`** — extend the existing `countProjects()`.
+- **Kind disambiguation in `record_reasoning`'s tool description** — *"if you pursued an approach
+  that failed, this is a `dead_end`, not a `surprise`; its `signal` field — what should have tipped
+  you off — is what makes it worth recording."* The description is read every time recording is
+  considered, so it converts **at source**. Roughly five lines, and on this evidence it outranks 0a.
+
+Rationale for the pairing: `surprise` is a superset of `dead_end` with a cheaper payload, so the
+broad kind absorbs the narrow one unless something intervenes before the write.
+
+### 0c — Hook read path *(~1 session; build, no restart)*
+
+- **Suppress cold-project recall** — the gate hook counts entries in the resolved scope and skips
+  injection at zero, removing ~41% of current ceremony.
+- **Move the gate to first substantive tool use**, off plan-mode transitions: a session that
+  *starts* in plan mode never fires `EnterPlanMode` (observed twice), and `ExitPlanMode` fires after
+  the derivation it was meant to precede.
+- **`retry_of` → mid-task `dead_end` trigger.** Already computed and stored by the spine
+  (`ledger-service.ts:199`), consumed by nothing. **Blocked by open question 1** — it only exists
+  where the spine runs, which today is this repo alone.
+
+### Measurement
+
+- **Metric:** scarce-kind share (`friction` + `dead_end` + `reconstruction` + `abandoned_branch`).
+- **Baseline: 18.1%** (n=271, 2026-08-13). Supersedes the 17.7% figure quoted earlier in this
+  document — that was computed mid-session, before the review's own entries landed.
+- **Window:** a rolling window of **N=100 entries**, not per-day. Throughput is far too spiky for
+  daily rates — the last fortnight ran 2, 3, 8, 12, 15, 6, 22, 13, 1 per day.
+- **Epoch:** set it when **0b** lands, not 0a. Note the pre-period is mildly contaminated by the
+  review session's own entries.
+- **Confounder to watch:** `dead_end` ran 2 / 4 / 1 on 08-10…08-12 — more in three days than in all
+  of July, *before* any change shipped. Either the investigation work naturally produces them or
+  discipline is already improving. Do not attribute post-change movement to the hooks without
+  checking this trend first.
+
+**Decision gate:** if a 100-entry window after 0b does not move composition, the server sprints
+below are unlikely to either — they address retrieval, which is already working.
 
 ---
 
