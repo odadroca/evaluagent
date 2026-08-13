@@ -24,6 +24,9 @@ The behavioral spine is **Claude Code only**. `buildHooksSnippet` (`src/hooks/in
 `.claude/settings.json` snippet wiring `SessionStart` / `PreToolUse` / `PostToolUse` /
 `PostToolUseFailure` / `Stop` / `SessionEnd`; `src/` contains no Codex references at all.
 
+Since 2026-08-13 those hooks are wired at Claude Code's **user scope**, so the spine captures across
+all that harness's projects — and none of Codex's. The asymmetry is now wider, not narrower.
+
 Consequence for a Codex session: **your tool calls are not being captured.** The ledger will hold
 only what you write deliberately via `record_reasoning` (`source: self_report`) — no `hook_spine`
 rows, no pre/post correlation, no `duration_ms`. Anything you want a future instance to know must

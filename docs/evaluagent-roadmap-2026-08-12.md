@@ -148,7 +148,12 @@ Not *"anything worth journaling?"* — that yields more `confidence`. Name the s
 asks, not that it asks late. Works in every project, no spine dependency. Additive only — ship it
 because it is nearly free, not because it will move the ratio.
 
-### 0b — The conversion bundle *(half a day; one build + restart)* ← **the leverage**
+### 0b — The conversion bundle ✅ **SHIPPED 2026-08-13 (`52c9664`)** ← **the leverage**
+
+*All three landed; 120 tests (was 109), build clean. Requires `claude -c` before the tools appear in
+a session. Validated against the live ledger: the entry a field report spent 8 days unable to
+recover (`01KZ728YX5…`, filed under `vidaprofissional` while searched from `Jobs`) now returns from
+any scope in one call. `list_projects` names all 45 projects.*
 
 - **`ledger_get`** — expose the already-implemented `getEntry(id)`. Makes the corpus
   self-recoverable; an 8-day-lost entry was retrievable the whole time.

@@ -15,10 +15,14 @@ yourself evaluating evaluagent by "did recall stop a repeated mistake", you are 
 yardstick and will reach an unfairly negative verdict.
 
 - **North-star metric: corpus composition** — share of entries in the scarce kinds
-  (`friction` + `dead_end` + `reconstruction` + `abandoned_branch`). **Baseline 18.1%**
-  (2026-08-13, n=271). Measure over a rolling **100-entry window**, never per-day: throughput swings
-  1–22 entries/day. This *replaces* recurrence-conditioned-on-recall, which needs months and answers
-  a question nobody asked.
+  (`friction` + `dead_end` + `reconstruction` + `abandoned_branch`). This *replaces*
+  recurrence-conditioned-on-recall, which needs months and answers a question nobody asked.
+- **Do NOT compare against a lifetime average — there is a large pre-existing upward trend.**
+  By 50-entry block: 14% → 12% → **8%** (Jul 02–21) → 24% → **30%** (Aug 05–11) → 22%. The share
+  nearly quadrupled with no intervention in place, so the 17.9% all-time figure describes history,
+  not current behaviour (last 50 entries run ~24%). Measure as an **interrupted time series against
+  the extrapolated trend, in 50-entry blocks** — never per-day (throughput swings 1–22/day), and
+  never against a point baseline, which would score the existing trend as a win.
 - The write path is the product. The read path is support for it.
 - **Adding scarce entries does not move the metric — converting does.** Measured 2026-08-13: the
   review session that *discovered* the composition problem then wrote 11 entries at 18.2% scarce,
@@ -51,14 +55,16 @@ whether you *pursued an approach that failed* — if so it is a `dead_end`.
 ## Before triaging any "missing capability", read the spec
 
 `docs/REASONING-LEDGER-PLAN.md` and `docs/REASONING-LEDGER-ARCHITECTURE.md` are **spec-stage but
-not superseded**. Only **2 of 6 planned tools** and **0 of 5 planned MCP resources** exist. Three
-independent field reports plus one analysis session derived "new" requirements that were already
-written there (entry `01KZW32FQJ…`):
+not superseded**. **4 of 6 planned tools** now exist (`ledger_get` + `list_projects` shipped
+2026-08-13 in `52c9664`); still missing: `session_start`/`session_end`, `ledger_query`,
+`session_timeline`, and **all 5 planned MCP resources**. Three independent field reports plus one
+analysis session derived "new" requirements that were already written there (entry `01KZW32FQJ…`):
 
-- `list_projects` = the planned `ledger://projects` resource.
-- `get_entry` = the planned `ledger_get` — and **`getEntry(id)` is already implemented** at
-  `repo/ledger-repository.ts`; it was simply never exposed as a tool.
-- The `Stop`-hook journaling nudge is verbatim plan §7's **named top product risk**.
+- `list_projects` = the planned `ledger://projects` resource. ✅ shipped as a tool.
+- `get_entry` = the planned `ledger_get` — `getEntry(id)` had been implemented all along and was
+  simply never exposed. ✅ shipped.
+- The `Stop`-hook journaling nudge is verbatim plan §7's **named top product risk**. Still unbuilt
+  (Sprint 0a).
 - `projects` / `sessions` were specified as *tables* (`sessions.external_id` = the host session
   join key) and shipped denormalized. The slug fragmentation, the missing project listing and the
   87%-NULL `session_id` all trace to that single drop — the fix is implementing the written schema.
@@ -82,10 +88,16 @@ written there (entry `01KZW32FQJ…`):
 
 - Server: `node <repo>/dist/bin/ledger.js serve`. Always `npm run build` before relying on it
   (config points at `dist/`, not `src/`).
-- Hook bridge: `node <repo>/dist/bin/ledger-hook.js`, wired via `.claude/settings.local.json`;
-  needs `EVALUAGENT_PROJECT` to match the MCP scope or it defaults to the cwd basename and
-  splits entries across project tags.
-- Conventions: TDD (`npx vitest run`), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
+- **Hook bridge is wired at USER scope since 2026-08-13** (`~/.claude/settings.json`, backup
+  `settings.json.bak-20260813-174308`), so the behavioural spine now captures in **every project**,
+  not just this repo. The repo-level hook wiring was removed to stop both scopes double-writing;
+  `.claude/settings.local.json` still keeps `EVALUAGENT_PROJECT=evaluagent` and permissions.
+  **Two consequences for analysis:** at user scope there is no per-project `EVALUAGENT_PROJECT`, so
+  the hook falls back to the **cwd basename**; and spine rows carry the real host `session_id` while
+  self-reports get `proc-<ulid>`. **So spine and self-report join on neither project nor session** —
+  within-spine work (`retry_of`, pre/post duration, tool ordering) is fine; cross-source joins need
+  normalisation or the unbuilt `sessions.external_id`.
+- Conventions: TDD (`npx vitest run`, 120 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
 
 ## Measurement conventions (post-HOLD read/measure bundle, 2026-08-02)
 
