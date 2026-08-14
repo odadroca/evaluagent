@@ -41,7 +41,7 @@ and the anti-self-reinforcement / staleness guards.
 
 ```bash
 npm install
-npm test          # 173 tests
+npm test          # 176 tests
 npm run build     # compiles to dist/
 ```
 
@@ -101,6 +101,20 @@ writes spine entries (source `hook_spine`) into the same ledger. The snippet use
 `args`** so a binary path containing spaces is passed unsplit. The hook **always exits 0** so it
 can never break the agent, and tool inputs are stored only as a hashed digest. Outside Claude
 Code the bridge is simply absent and the ledger holds self-report entries only.
+
+> **Add a `timeout` to the `SessionEnd` entry.** SessionEnd hooks share a **1.5-second budget**, and
+> an explicit per-hook `timeout` raises that budget to match (up to 60s). Without one the hook is
+> cancelled during teardown and Claude Code reports
+> `SessionEnd hook failed: Hook cancelled` on every exit. The snippet does not emit it yet — add
+> `"timeout": 15` to that entry by hand:
+>
+> ```jsonc
+> "SessionEnd": [{ "hooks": [{ "type": "command", "command": "node",
+>                              "args": ["/abs/path/dist/bin/ledger-hook.js"], "timeout": 15 }] }]
+> ```
+>
+> Nothing is lost if it is cancelled — `startSession` also closes stale sessions — but the error is
+> noisy and the fix is one field.
 
 ## Tools
 

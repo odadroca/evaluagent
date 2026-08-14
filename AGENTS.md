@@ -52,7 +52,7 @@ tool output.
 
 ## Conventions
 
-- TDD: `npx vitest run` (173 tests).
+- TDD: `npx vitest run` (176 tests).
 - TypeBox + Ajv for validation — **no Zod**.
 - ESM with `.js` import specifiers.
 - `npm run typecheck` currently reports 9 pre-existing errors, all inside `*.test.ts`;
