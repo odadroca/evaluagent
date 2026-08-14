@@ -55,9 +55,11 @@ whether you *pursued an approach that failed* — if so it is a `dead_end`.
 ## Before triaging any "missing capability", read the spec
 
 `docs/REASONING-LEDGER-PLAN.md` and `docs/REASONING-LEDGER-ARCHITECTURE.md` are **spec-stage but
-not superseded**. **4 of 6 planned tools** now exist (`ledger_get` + `list_projects` shipped
-2026-08-13 in `52c9664`); still missing: `session_start`/`session_end`, `ledger_query`,
-`session_timeline`, and **all 5 planned MCP resources**. Three independent field reports plus one
+not superseded**. **5 of 6 planned tools** now exist — `ledger_get`, `list_projects` (`52c9664`), plus
+`ledger_query`, `session_timeline` and `rename_project` (`82f5ebc`). Still missing:
+`session_start`/`session_end` as *tools* (the hook bridge already does the work), and **all 5
+planned MCP resources**. The surface is at 7 tools against the architecture's ~8 guideline, so a
+new tool now needs justifying rather than just adding. Three independent field reports plus one
 analysis session derived "new" requirements that were already written there (entry `01KZW32FQJ…`):
 
 - `list_projects` = the planned `ledger://projects` resource. ✅ shipped as a tool.
@@ -117,7 +119,7 @@ before "what should I build?"
   the hook falls back to the **cwd basename**. The session half of this is **fixed as of 2026-08-14**
   (`sessions.external_id` is built, so new writes share one id); the project half remains, and all
   pre-2026-08-14 data still joins on neither.
-- Conventions: TDD (`npx vitest run`, 156 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
+- Conventions: TDD (`npx vitest run`, 173 tests), TypeBox + Ajv (no Zod), ESM `.js` import specifiers.
 
 ## Measurement conventions (post-HOLD read/measure bundle, 2026-08-02)
 

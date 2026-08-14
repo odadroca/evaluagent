@@ -41,7 +41,7 @@ and the anti-self-reinforcement / staleness guards.
 
 ```bash
 npm install
-npm test          # 156 tests
+npm test          # 173 tests
 npm run build     # compiles to dist/
 ```
 
@@ -114,6 +114,16 @@ Code the bridge is simply absent and the ledger holds self-report entries only.
   returning an empty success.
 - **`list_projects`** `{}` — every project with `entries` and `last_written`, busiest first. The
   browse face for `scope.projects_total`, which otherwise only tells you how much you cannot see.
+- **`ledger_query`** `{ project?, kinds?, source?, since?, until?, limit? }` — filtered, non-ranked
+  read for **analysis** (counts, time ranges, kind mixes); omit `project` to span all. Use
+  `recall_reasoning` for the most relevant lessons, this for a defined slice. **Not logged to
+  `recall_events`**, so analysis traffic cannot distort the measurement of whether recall changes
+  behaviour.
+- **`session_timeline`** `{ session_id, limit? }` — one session's self-reports and spine interleaved,
+  oldest first. Entries written before 2026-08-14 predate the `sessions` table, so a timeline over
+  that era shows one source only.
+- **`rename_project`** `{ from, to, merge? }` — rename everywhere, or merge into an existing project.
+  Merging is destructive and requires `merge: true`; moved entries are stamped `was:<old-slug>`.
 
 ## Layout
 
