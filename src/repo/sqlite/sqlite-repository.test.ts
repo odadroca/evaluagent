@@ -410,3 +410,117 @@ describe("SqliteRepository — projects/sessions scope tables (architecture §3)
     expect(projects.map((p) => p.project).sort()).toEqual(["legacy-one", "legacy-two"]);
   });
 });
+
+describe("SqliteRepository.renameProject", () => {
+  it("renames a project across entries, recall_events and the projects row", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "old-slug" }));
+    await r.insertRecallEvent({ project: "old-slug", sessionId: null, query: {}, returned: [] });
+
+    const res = await r.renameProject("old-slug", "new-slug", false);
+
+    expect(res.entries).toBe(1);
+    expect(res.recallEvents).toBe(1);
+    const projects = await r.listProjects();
+    expect(projects.map((p) => p.project)).toEqual(["new-slug"]);
+  });
+
+  it("refuses to merge into an existing project unless merge is explicit", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "a" }));
+    await r.insertEntry(newEntry({ project: "b" }));
+    await expect(r.renameProject("a", "b", false)).rejects.toThrow(/exists/i);
+  });
+
+  it("merges when asked, and stamps was:<old> so provenance survives", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "a", tags: ["x"] }));
+    await r.insertEntry(newEntry({ project: "b" }));
+
+    const res = await r.renameProject("a", "b", true);
+    expect(res.entries).toBe(1);
+
+    const merged = await r.query({ project: "b", limit: 10 } as never);
+    expect(merged).toHaveLength(2);
+    const moved = merged.find((e) => e.tags.includes("x"))!;
+    expect(moved.tags).toContain("was:a");
+    expect((await r.listProjects()).map((p) => p.project)).toEqual(["b"]);
+  });
+
+  it("repoints sessions at the surviving project so they are not orphaned", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "a", externalId: "host-1" });
+    await r.insertEntry(newEntry({ project: "b" }));
+    await r.renameProject("a", "b", true);
+    expect(await r.resolveSessionId("b")).toBe("host-1");
+  });
+
+  it("is a no-op on an unknown source project rather than throwing", async () => {
+    const r = makeRepo();
+    const res = await r.renameProject("ghost", "somewhere", false);
+    expect(res.entries).toBe(0);
+  });
+});
+
+describe("SqliteRepository.getSessionTimeline", () => {
+  it("interleaves self-report and spine for one session, oldest first", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "p", sessionId: "S", title: "lesson" }));
+    await r.insertEntry({
+      kind: "spine_tool" as never,
+      project: "p",
+      title: "PreToolUse: Bash",
+      body: "",
+      payload: { phase: "pre" },
+      source: "hook_spine",
+      sessionId: "S",
+    } as never);
+    await r.insertEntry(newEntry({ project: "p", sessionId: "OTHER", title: "not mine" }));
+
+    const timeline = await r.getSessionTimeline("S", 50);
+    expect(timeline.map((e) => e.title)).toEqual(["lesson", "PreToolUse: Bash"]);
+    expect(timeline.map((e) => e.source).sort()).toEqual(["hook_spine", "self_report"]);
+  });
+
+  it("returns empty for an unknown session", async () => {
+    expect(await makeRepo().getSessionTimeline("nope", 10)).toEqual([]);
+  });
+});
+
+describe("SqliteRepository.queryEntries", () => {
+  it("filters by time range — the thing recall cannot express", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "p", title: "one" }));
+    const all = await r.queryEntries({ project: "p", limit: 10 });
+    expect(all).toHaveLength(1);
+    const future = await r.queryEntries({ project: "p", since: "2099-01-01T00:00:00Z", limit: 10 });
+    expect(future).toHaveLength(0);
+  });
+
+  it("filters by kind and source without ranking", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "p", kind: "surprise" }));
+    await r.insertEntry(newEntry({ project: "p", kind: "friction", payload: { where: "w", kind: "tooling", intensity: 1 } }));
+    const only = await r.queryEntries({ project: "p", kinds: ["friction"], limit: 10 });
+    expect(only.map((e) => e.kind)).toEqual(["friction"]);
+  });
+
+  it("can span every project when none is given — for analysis, not recall", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "p1" }));
+    await r.insertEntry(newEntry({ project: "p2" }));
+    const all = await r.queryEntries({ limit: 10 });
+    expect(all).toHaveLength(2);
+  });
+});
+
+describe("SqliteRepository — projects table stays in sync (regression)", () => {
+  it("registers the slug on every insert, not just at open", async () => {
+    const r = makeRepo();
+    await r.insertEntry(newEntry({ project: "created-at-runtime" }));
+    const row = (r as unknown as { db: { prepare: (s: string) => { get: (v: string) => unknown } } }).db
+      .prepare("SELECT id FROM projects WHERE slug=?")
+      .get("created-at-runtime");
+    expect(row, "a runtime insert must register its project or the table drifts").toBeTruthy();
+  });
+});

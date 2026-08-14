@@ -116,6 +116,65 @@ async function listProjects(service: LedgerService): Promise<CallToolResult> {
   });
 }
 
+function entryOut(e: {
+  id: string; kind: string; project: string; title: string; body: string; tags: string[];
+  confidence: number | null; salience: number; createdAt: string; source: string; payload: unknown;
+  sessionId: string | null;
+}): Record<string, unknown> {
+  return {
+    entry_id: e.id, kind: e.kind, project: e.project, title: e.title, body: e.body,
+    tags: e.tags, confidence: e.confidence, salience: e.salience,
+    created_at: e.createdAt, session_id: e.sessionId, source: e.source, payload: e.payload,
+  };
+}
+
+async function ledgerQuery(
+  service: LedgerService,
+  args: Record<string, unknown>,
+): Promise<CallToolResult> {
+  const entries = await service.queryEntries({
+    project: args.project as string | undefined,
+    source: args.source as string | undefined,
+    kinds: args.kinds as string[] | undefined,
+    since: args.since as string | undefined,
+    until: args.until as string | undefined,
+    limit: args.limit as number | undefined,
+  });
+  return ok({ count: entries.length, entries: entries.map(entryOut) });
+}
+
+async function sessionTimeline(
+  service: LedgerService,
+  args: Record<string, unknown>,
+): Promise<CallToolResult> {
+  const entries = await service.sessionTimeline(
+    String(args.session_id ?? ""),
+    args.limit as number | undefined,
+  );
+  return ok({
+    session_id: args.session_id,
+    count: entries.length,
+    self_reports: entries.filter((e) => e.source === "self_report").length,
+    spine: entries.filter((e) => e.source === "hook_spine").length,
+    entries: entries.map(entryOut),
+  });
+}
+
+async function renameProject(
+  service: LedgerService,
+  args: Record<string, unknown>,
+): Promise<CallToolResult> {
+  const res = await service.renameProject(
+    String(args.from ?? ""),
+    String(args.to ?? ""),
+    args.merge === true,
+  );
+  return ok({
+    from: args.from, to: args.to, merged: res.merged,
+    entries_moved: res.entries, recall_events_moved: res.recallEvents,
+  });
+}
+
 /** Build the MCP server (transport-agnostic; connect a transport via `.connect`). */
 export function createLedgerServer(service: LedgerService): Server {
   const server = new Server(
@@ -138,6 +197,12 @@ export function createLedgerServer(service: LedgerService): Server {
           return await ledgerGet(service, args);
         case "list_projects":
           return await listProjects(service);
+        case "ledger_query":
+          return await ledgerQuery(service, args);
+        case "session_timeline":
+          return await sessionTimeline(service, args);
+        case "rename_project":
+          return await renameProject(service, args);
         default:
           return err(`unknown tool: ${name}`);
       }

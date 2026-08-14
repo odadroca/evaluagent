@@ -1,5 +1,5 @@
 import type { EntrySource, LedgerEntry, LedgerQuery, RankMode, RecallResult } from "../domain/entry.js";
-import type { LedgerRepository, NudgeCounts, ProjectSummary } from "../repo/ledger-repository.js";
+import type { EntryFilter, LedgerRepository, NudgeCounts, ProjectSummary } from "../repo/ledger-repository.js";
 import type { Ranker } from "../repo/ranker.js";
 import type { SpineWrite } from "../domain/spine.js";
 import { isEntryKind, validatePayload } from "../domain/entry-kinds.js";
@@ -189,6 +189,36 @@ export class LedgerService {
   /** Every project with entry counts and freshness — the browse face for `projects_total`. */
   async listProjects(): Promise<ProjectSummary[]> {
     return this.repo.listProjects();
+  }
+
+  /** Rename or merge a project. Merging is destructive, so the caller must opt in. */
+  async renameProject(from: string, to: string, merge = false) {
+    if (!from?.trim() || !to?.trim()) {
+      throw new LedgerValidationError("both 'from' and 'to' project slugs are required");
+    }
+    return this.repo.renameProject(from.trim(), to.trim(), merge);
+  }
+
+  /** One session's entries, self-report and spine interleaved. */
+  async sessionTimeline(sessionId: string, limit?: number): Promise<LedgerEntry[]> {
+    if (!sessionId?.trim()) throw new LedgerValidationError("session_id is required");
+    return this.repo.getSessionTimeline(sessionId.trim(), limit);
+  }
+
+  /**
+   * Non-ranked filtered read for analysis.
+   *
+   * Deliberately NOT logged to `recall_events`: that table is the measurement
+   * substrate for whether *recall* changes behaviour, and analysis traffic in it
+   * would corrupt exactly the numbers it exists to produce.
+   */
+  async queryEntries(f: EntryFilter): Promise<LedgerEntry[]> {
+    for (const k of f.kinds ?? []) {
+      if (!isEntryKind(k) && k !== "spine_tool" && k !== "spine_lifecycle") {
+        throw new LedgerValidationError(`unknown entry kind: ${k}`);
+      }
+    }
+    return this.repo.queryEntries(f);
   }
 
   /** One-pass counts backing the hook bridge's nudge decision. */

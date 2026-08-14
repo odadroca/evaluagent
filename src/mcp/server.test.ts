@@ -243,3 +243,94 @@ describe("MCP list_projects", () => {
     expect(names).toContain("list_projects");
   });
 });
+
+describe("MCP spec-completion tools", () => {
+  async function seed(client: any, project: string, title = "t") {
+    return client.callTool({
+      name: "record_reasoning",
+      arguments: {
+        kind: "surprise", title, body: "b",
+        payload: { expected: "a", actual: "b", magnitude: 1 }, project,
+      },
+    });
+  }
+
+  it("advertises all seven tools", async () => {
+    const client = await connectedClient();
+    const names = (await client.listTools()).tools.map((t) => t.name).sort();
+    expect(names).toEqual([
+      "ledger_get", "ledger_query", "list_projects",
+      "recall_reasoning", "record_reasoning", "rename_project", "session_timeline",
+    ]);
+  });
+
+  it("ledger_query spans all projects and filters by kind", async () => {
+    const client = await connectedClient();
+    await seed(client, "p1");
+    await seed(client, "p2");
+    const all = JSON.parse(textOf(await client.callTool({ name: "ledger_query", arguments: {} })));
+    expect(all.count).toBe(2);
+    const none = JSON.parse(
+      textOf(await client.callTool({ name: "ledger_query", arguments: { kinds: ["friction"] } })),
+    );
+    expect(none.count).toBe(0);
+  });
+
+  it("ledger_query does NOT log a recall event — analysis must not distort the measurement", async () => {
+    const client = await connectedClient();
+    await seed(client, "p1");
+    await client.callTool({ name: "ledger_query", arguments: { project: "p1" } });
+    const events = await repo.listRecallEvents("p1", 10);
+    expect(events, "a ledger_query must never appear in recall_events").toHaveLength(0);
+
+    await client.callTool({ name: "recall_reasoning", arguments: { project: "p1" } });
+    expect(await repo.listRecallEvents("p1", 10)).toHaveLength(1); // recall still does
+  });
+
+  it("rename_project refuses a silent merge, then performs an explicit one", async () => {
+    const client = await connectedClient();
+    await seed(client, "a");
+    await seed(client, "b");
+
+    const refused = await client.callTool({
+      name: "rename_project",
+      arguments: { from: "a", to: "b" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toMatch(/merge:\s*true/i);
+
+    const done = JSON.parse(
+      textOf(await client.callTool({ name: "rename_project", arguments: { from: "a", to: "b", merge: true } })),
+    );
+    expect(done.merged).toBe(true);
+    expect(done.entries_moved).toBe(1);
+
+    const projects = JSON.parse(textOf(await client.callTool({ name: "list_projects", arguments: {} })));
+    expect(projects.projects.map((p: { project: string }) => p.project)).toEqual(["b"]);
+  });
+
+  it("session_timeline reports both sources for one session", async () => {
+    const client = await connectedClient();
+    await client.callTool({
+      name: "record_reasoning",
+      arguments: {
+        kind: "surprise", title: "in a session", body: "b",
+        payload: { expected: "a", actual: "b", magnitude: 1 },
+        project: "p1", session_id: "SESS-1",
+      },
+    });
+    const sid = "SESS-1";
+
+    const tl = JSON.parse(
+      textOf(await client.callTool({ name: "session_timeline", arguments: { session_id: sid } })),
+    );
+    expect(tl.count).toBeGreaterThan(0);
+    expect(tl.self_reports).toBeGreaterThan(0);
+  });
+
+  it("session_timeline errors on a missing session_id rather than returning everything", async () => {
+    const client = await connectedClient();
+    const res = await client.callTool({ name: "session_timeline", arguments: { session_id: "" } });
+    expect(res.isError).toBe(true);
+  });
+});

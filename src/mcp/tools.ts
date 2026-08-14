@@ -85,6 +85,59 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: "ledger_query",
+    description:
+      "Filtered, non-ranked read over the ledger for ANALYSIS — counts, time ranges, kind mixes. " +
+      "Use `recall_reasoning` when you want the most relevant lessons for the work in front of you; use this when you want a defined slice. " +
+      "Unlike recall, this is NOT logged as a recall event, so analysis traffic cannot distort the measurement of whether recall changes behaviour. " +
+      "Omit `project` to span every project. Newest first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Omit to span all projects." },
+        kinds: { type: "array", items: { type: "string" } },
+        source: { type: "string", enum: ["self_report", "hook_spine"] },
+        since: { type: "string", description: "ISO timestamp, inclusive lower bound on created_at." },
+        until: { type: "string", description: "ISO timestamp, inclusive upper bound on created_at." },
+        limit: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "session_timeline",
+    description:
+      "One session's entries — self-reports and the automatic tool/lifecycle spine interleaved, oldest first. " +
+      "Answers \"what happened, and what did I learn, in that session?\". " +
+      "NOTE: entries written before 2026-08-14 predate the sessions table, so self-reports carry a per-process `proc-<ulid>` id while spine rows carry the host session id — a timeline over that era will show one source only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+      },
+      required: ["session_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "rename_project",
+    description:
+      "Rename a project everywhere (entries, recall events, the projects row), or merge it into an existing one. " +
+      "MERGING IS DESTRUCTIVE AND IRREVERSIBLE: it requires `merge: true`, so a mistyped target cannot silently combine two unrelated corpora. " +
+      "Moved entries are stamped `was:<old-slug>` so provenance survives. Use it to collapse slug variants of the same work (e.g. a folder renamed on disk).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        merge: { type: "boolean", description: "Required when `to` already exists." },
+      },
+      required: ["from", "to"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_projects",
     description:
       "List every project in the ledger with its entry count and most recent write, busiest first. " +

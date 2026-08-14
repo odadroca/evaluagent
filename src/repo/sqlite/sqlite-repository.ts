@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { monotonicFactory } from "ulid";
 import type { AnyKind, Candidate, EntrySource, LedgerEntry, LedgerQuery, NewEntry } from "../../domain/entry.js";
 import type { NewRecallEvent, RecallEvent } from "../../domain/recall-event.js";
-import type { LedgerRepository, NudgeCounts, ProjectSummary, SpineMatch } from "../ledger-repository.js";
+import type { EntryFilter, LedgerRepository, NudgeCounts, ProjectSummary, SpineMatch } from "../ledger-repository.js";
 import { clampLimit } from "../../domain/limits.js";
 
 // Monotonic so ids are strictly increasing even within the same millisecond —
@@ -241,6 +241,12 @@ export class SqliteRepository implements LedgerRepository {
       tool_name: entry.toolName ?? null,
       ref_entry_id: entry.refEntryId ?? null,
     };
+    // Register the slug so `projects` stays authoritative. Without this the table is
+    // only correct at open time (backfillProjects) and drifts on every runtime write —
+    // which silently broke renameProject's merge detection.
+    this.db
+      .prepare("INSERT OR IGNORE INTO projects (id, slug, label, created_at) VALUES (?,?,NULL,?)")
+      .run(ulid(), row.project, row.created_at);
     this.db
       .prepare(
         `INSERT INTO entries
@@ -485,6 +491,93 @@ export class SqliteRepository implements LedgerRepository {
       )
       .get(project) as { ext: string } | undefined;
     return row?.ext ?? null;
+  }
+
+  /**
+   * Rename a project everywhere, or merge it into an existing one.
+   *
+   * Replaces the hand-written SQL used on 2026-08-14 to collapse ~6 slug families.
+   * Merging is destructive and irreversible, so it must be asked for explicitly:
+   * a typo'd target would otherwise silently combine two unrelated corpora.
+   * Moved self-reports are stamped `was:<old>` so provenance survives the move —
+   * there is no alias table, and re-pointing would otherwise erase the history.
+   */
+  async renameProject(
+    from: string,
+    to: string,
+    merge: boolean,
+  ): Promise<{ entries: number; recallEvents: number; merged: boolean }> {
+    if (from === to) return { entries: 0, recallEvents: 0, merged: false };
+    const target = this.db.prepare("SELECT id FROM projects WHERE slug=?").get(to) as
+      | { id: string }
+      | undefined;
+    const targetHasEntries =
+      (this.db.prepare("SELECT COUNT(*) c FROM entries WHERE project=?").get(to) as { c: number }).c > 0;
+    const preExisting = Boolean(target) || targetHasEntries;
+    if (preExisting && !merge) {
+      throw new Error(
+        `project "${to}" already exists — pass merge:true to combine "${from}" into it`,
+      );
+    }
+
+    const tx = this.db.transaction(() => {
+      // Provenance first, while the rows are still findable by the old slug.
+      const rows = this.db
+        .prepare("SELECT id, tags FROM entries WHERE project=? AND source='self_report'")
+        .all(from) as Array<{ id: string; tags: string }>;
+      const setTags = this.db.prepare("UPDATE entries SET tags=? WHERE id=?");
+      for (const r of rows) {
+        const tags = JSON.parse(r.tags || "[]") as string[];
+        const mark = `was:${from}`;
+        if (!tags.includes(mark)) tags.push(mark);
+        setTags.run(JSON.stringify(tags), r.id);
+      }
+
+      const e = this.db.prepare("UPDATE entries SET project=? WHERE project=?").run(to, from);
+      const rc = this.db.prepare("UPDATE recall_events SET project=? WHERE project=?").run(to, from);
+
+      const src = this.db.prepare("SELECT id FROM projects WHERE slug=?").get(from) as
+        | { id: string }
+        | undefined;
+      if (src) {
+        if (target) {
+          // Merge: repoint sessions at the survivor, then drop the now-empty project row.
+          this.db.prepare("UPDATE sessions SET project_id=? WHERE project_id=?").run(target.id, src.id);
+          this.db.prepare("DELETE FROM projects WHERE id=?").run(src.id);
+        } else {
+          this.db.prepare("UPDATE projects SET slug=? WHERE id=?").run(to, src.id);
+        }
+      }
+      return { entries: e.changes, recallEvents: rc.changes, merged: preExisting };
+    });
+    return tx();
+  }
+
+  async getSessionTimeline(sessionId: string, limit = 200): Promise<LedgerEntry[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM entries WHERE session_id = ?
+          ORDER BY created_at ASC, id ASC LIMIT ?`,
+      )
+      .all(sessionId, clampLimit(limit, 500)) as Row[];
+    return rows.map(toEntry);
+  }
+
+  async queryEntries(f: EntryFilter): Promise<LedgerEntry[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (f.project) { where.push("project = ?"); params.push(f.project); }
+    if (f.source) { where.push("source = ?"); params.push(f.source); }
+    if (f.kinds?.length) {
+      where.push(`kind IN (${f.kinds.map(() => "?").join(",")})`);
+      params.push(...f.kinds);
+    }
+    if (f.since) { where.push("created_at >= ?"); params.push(f.since); }
+    if (f.until) { where.push("created_at <= ?"); params.push(f.until); }
+    const sql = `SELECT * FROM entries ${where.length ? "WHERE " + where.join(" AND ") : ""}
+                 ORDER BY created_at DESC, id DESC LIMIT ?`;
+    const rows = this.db.prepare(sql).all(...params, clampLimit(f.limit, 200)) as Row[];
+    return rows.map(toEntry);
   }
 
   async getNudgeCounts(project: string, sessionId: string | null): Promise<NudgeCounts> {

@@ -31,6 +31,16 @@ export interface NudgeCounts {
   alreadyNudged: string[];
 }
 
+/** Non-ranked filter for analysis reads (`ledger_query`), including a time range. */
+export interface EntryFilter {
+  project?: string;
+  source?: string;
+  kinds?: string[];
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
 /** Identifies a specific tool invocation across separate hook processes. */
 export interface SpineMatch {
   project: string;
@@ -75,6 +85,12 @@ export interface LedgerRepository {
    * Lets an MCP-server write stamp the REAL session id rather than a proc-<ulid> proxy.
    */
   resolveSessionId(project: string): Promise<string | null>;
+  /** Rename a project everywhere, or merge it into an existing one (destructive — explicit only). */
+  renameProject(from: string, to: string, merge: boolean): Promise<{ entries: number; recallEvents: number; merged: boolean }>;
+  /** One session's entries, self-report and spine interleaved, oldest first. */
+  getSessionTimeline(sessionId: string, limit?: number): Promise<LedgerEntry[]>;
+  /** Non-ranked filtered read for analysis. Deliberately NOT logged as a recall event. */
+  queryEntries(f: EntryFilter): Promise<LedgerEntry[]>;
   /** One-pass counts for the hook bridge's nudge decision (runs per tool call — keep it cheap). */
   getNudgeCounts(project: string, sessionId: string | null): Promise<NudgeCounts>;
   /** Remember that a nudge kind fired this session, so it fires at most once. */
