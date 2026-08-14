@@ -524,3 +524,33 @@ describe("SqliteRepository — projects table stays in sync (regression)", () =>
     expect(row, "a runtime insert must register its project or the table drifts").toBeTruthy();
   });
 });
+
+describe("SqliteRepository — session lifecycle survives a cancelled SessionEnd", () => {
+  it("closes a stale open session when a new one starts in the same project", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "alpha", externalId: "host-A" });
+    // SessionEnd never fires for host-A (hook cancelled at teardown).
+    await r.startSession({ project: "alpha", externalId: "host-B" });
+
+    expect(await r.resolveSessionId("alpha")).toBe("host-B");
+    const open = (r as unknown as { db: { prepare: (s: string) => { all: () => unknown[] } } }).db
+      .prepare("SELECT external_id FROM sessions WHERE ended_at IS NULL")
+      .all() as Array<{ external_id: string }>;
+    expect(open.map((o) => o.external_id), "only the newest session may remain open").toEqual(["host-B"]);
+  });
+
+  it("does not close the session that is re-entering (SessionStart can fire more than once)", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "alpha", externalId: "host-A" });
+    await r.startSession({ project: "alpha", externalId: "host-A" });
+    expect(await r.resolveSessionId("alpha")).toBe("host-A");
+  });
+
+  it("leaves other projects' sessions alone", async () => {
+    const r = makeRepo();
+    await r.startSession({ project: "alpha", externalId: "host-A" });
+    await r.startSession({ project: "beta", externalId: "host-B" });
+    expect(await r.resolveSessionId("alpha")).toBe("host-A");
+    expect(await r.resolveSessionId("beta")).toBe("host-B");
+  });
+});

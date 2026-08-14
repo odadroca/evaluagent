@@ -459,12 +459,24 @@ export class SqliteRepository implements LedgerRepository {
       this.db.prepare("UPDATE sessions SET ended_at=NULL WHERE external_id=?").run(input.externalId);
       return existing.external_id;
     }
+    const now = new Date().toISOString();
+    // A new session starting implies any earlier one for this project is over.
+    // SessionEnd races process teardown and is cancellable — observed in the wild as
+    // "SessionEnd hook failed: Hook cancelled", and historically it fired for only some
+    // sessions that fired SessionStart. So it cannot be load-bearing: closing stale
+    // siblings here makes SessionEnd advisory and keeps `ended_at` meaningful.
+    // `IS NOT` (not `!=`) so a NULL external_id row is still swept.
+    this.db
+      .prepare(
+        "UPDATE sessions SET ended_at=? WHERE project_id=? AND ended_at IS NULL AND external_id IS NOT ?",
+      )
+      .run(now, projectId, input.externalId);
     this.db
       .prepare(
         `INSERT INTO sessions (id, project_id, external_id, agent, task, started_at, ended_at)
          VALUES (?,?,?,?,?,?,NULL)`,
       )
-      .run(ulid(), projectId, input.externalId, input.agent ?? null, input.task ?? null, new Date().toISOString());
+      .run(ulid(), projectId, input.externalId, input.agent ?? null, input.task ?? null, now);
     return input.externalId;
   }
 
