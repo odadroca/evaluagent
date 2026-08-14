@@ -30,6 +30,16 @@ yardstick and will reach an unfairly negative verdict.
   when a `surprise` that is really a `dead_end` gets written as one, not when a nudge appends more
   at the end. Prefer interventions that fire **before the write**.
 
+### Assessing composition: exclude this project
+
+Measured 2026-08-14: **78% of entries written since the last epoch were about evaluagent itself**
+(7 of 9). While the tool is being built, the corpus fills with entries about the tool — so a
+corpus-wide reading reports our own meta-work back to us and looks like success. **Filter out
+`project='evaluagent'`.** The instrument's value has to appear in the real work.
+
+Use **`ledger_query`** for this, not `recall_reasoning`: it is deliberately not logged to
+`recall_events`, so analysis traffic cannot distort the measurement it is producing.
+
 ## Capture discipline (the composition problem, and how to not cause it)
 
 Measured 2026-08-12: `confidence` 41.5% / `surprise` 40.8% / `friction` 8.3% / `dead_end` 4.5% /

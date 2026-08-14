@@ -324,8 +324,8 @@ the value hypothesis. See §0.2.
 ## Alignment with the original plan *(added after reading the spec docs)*
 
 Most of what the field reports raise is **unbuilt planned surface, not new scope**. From
-`REASONING-LEDGER-ARCHITECTURE.md` §7: **2 of 6 planned tools** and **0 of 5 planned MCP
-resources** exist.
+`REASONING-LEDGER-ARCHITECTURE.md` §7: at the time of writing **2 of 6 planned tools** and **0 of 5 planned MCP
+resources** existed. *(As of 2026-08-14: 5 of 6 tools, 7 total; resources still 0.)*
 
 | Field-report finding | Actually is | Status |
 |---|---|---|
